@@ -10,10 +10,6 @@ For UNIX-like systems.  Outputs to stdout; redirect to header file, e.g.:
 
 REQUIRES FREETYPE LIBRARY.  www.freetype.org
 
-Currently this only extracts the printable 7-bit ASCII chars of a font.
-Will eventually extend with some int'l chars a la ftGFX, not there yet.
-Keep 7-bit fonts around as an option in that case, more compact.
-
 See notes at end for glyph nomenclature & other tidbits.
 */
 #ifndef ARDUINO
@@ -28,6 +24,15 @@ See notes at end for glyph nomenclature & other tidbits.
 #include "../gfxfont.h" // Adafruit_GFX font structures
 
 #define DPI 141 // Approximate res. of Adafruit 2.8" TFT
+
+typedef struct ch_range {
+  int first;
+  int last;
+} ch_range;
+
+typedef struct glyph_name {
+  char name[32];
+} glyph_name;
 
 // Accumulate bits for output, with periodic hexadecimal byte write
 void enbit(uint8_t value) {
@@ -50,16 +55,119 @@ void enbit(uint8_t value) {
   }
 }
 
-int main(int argc, char *argv[]) {
-  int i, j, err, size, first = ' ', last = '~', bitmapOffset = 0, x, y, byte;
-  char *fontName, c, *ptr;
-  FT_Library library;
-  FT_Face face;
+int to_num(const char *str) {
+  int result;
+  if (strncmp("0x", str, 2) == 0) {
+    sscanf(str, "%x", &result);
+  } else {
+    sscanf(str, "%d", &result);
+  }
+  return result;
+}
+
+void range_swap_if_needed(ch_range *range) {
+  if (range->last < range->first) {
+    int swap = range->first;
+    range->first = range->last;
+    range->last = swap;
+  }
+}
+
+int range_count(const ch_range *range) {
+  return range->last - range->first + 1;
+}
+
+int extract_range(GFXglyph *table, glyph_name* names, FT_Face *face, int size, int first, int last,
+                  int *bitmapOffset) {
+  int i, err, x, y, byte;
+  static int j = 0;
+
   FT_Glyph glyph;
   FT_Bitmap *bitmap;
   FT_BitmapGlyphRec *g;
-  GFXglyph *table;
+
   uint8_t bit;
+
+  // << 6 because '26dot6' fixed-point format
+  FT_Set_Char_Size(*face, size << 6, 0, DPI, 0);
+
+  // Process glyphs and output huge bitmap data array
+  for (i = first; i <= last; i++, j++) {
+    // MONO renderer provides clean image with perfect crop
+    // (no wasted pixels) via bitmap struct.
+    if ((err = FT_Load_Char(*face, i, FT_LOAD_TARGET_MONO))) {
+      fprintf(stderr, "Error %d loading char '%c'\n", err, i);
+      continue;
+    }
+
+    //the name is optional
+    if ((err = FT_Get_Glyph_Name(*face, i, names[j].name, 32))) {
+      names[j].name[0] = 0;
+    }
+
+    if ((err = FT_Render_Glyph((*face)->glyph, FT_RENDER_MODE_MONO))) {
+      fprintf(stderr, "Error %d rendering char '%c'\n", err, i);
+      continue;
+    }
+
+    if ((err = FT_Get_Glyph((*face)->glyph, &glyph))) {
+      fprintf(stderr, "Error %d getting glyph '%c'\n", err, i);
+      continue;
+    }
+
+    bitmap = &((*face)->glyph->bitmap);
+    g = (FT_BitmapGlyphRec *)glyph;
+
+    // Minimal font and per-glyph information is stored to
+    // reduce flash space requirements.  Glyph bitmaps are
+    // fully bit-packed; no per-scanline pad, though end of
+    // each character may be padded to next byte boundary
+    // when needed.  16-bit offset means 64K max for bitmaps,
+    // code currently doesn't check for overflow.  (Doesn't
+    // check that size & offsets are within bounds either for
+    // that matter...please convert fonts responsibly.)
+    table[j].bitmapOffset = *bitmapOffset;
+    table[j].width = bitmap->width;
+    table[j].height = bitmap->rows;
+    table[j].xAdvance = (*face)->glyph->advance.x >> 6;
+    table[j].xOffset = g->left;
+    table[j].yOffset = 1 - g->top;
+
+    for (y = 0; y < bitmap->rows; y++) {
+      for (x = 0; x < bitmap->width; x++) {
+        byte = x / 8;
+        bit = 0x80 >> (x & 7);
+        enbit(bitmap->buffer[y * bitmap->pitch + byte] & bit);
+      }
+    }
+
+    // Pad end of char bitmap to next byte boundary if needed
+    int n = (bitmap->width * bitmap->rows) & 7;
+    if (n) {     // Pixel count not an even multiple of 8?
+      n = 8 - n; // # bits to next multiple
+      while (n--)
+        enbit(0);
+    }
+    *bitmapOffset += (bitmap->width * bitmap->rows + 7) / 8;
+
+    FT_Done_Glyph(glyph);
+  }
+
+  return 0;
+}
+
+int main(int argc, char *argv[]) {
+  FT_Library library;
+  GFXglyph *table;
+  glyph_name *names;
+  FT_Face face;
+  ch_range *ranges;
+  int first = ' ';
+  int last = '~';
+  int total_num = 0, skipped = 0;
+  int err, size, i, j, r;
+  char *fontName, *ptr, c;
+  int bitmapOffset = 0;
 
   // Parse command line.  Valid syntaxes are:
   //   fontconvert [filename] [size]
@@ -68,25 +176,35 @@ int main(int argc, char *argv[]) {
   // Unless overridden, default first and last chars are
   // ' ' (space) and '~', respectively
 
-  if (argc < 3) {
-    fprintf(stderr, "Usage: %s fontfile size [first] [last]\n", argv[0]);
+  if (argc < 3 || (argc > 5 && (argc % 2) == 0)) {
+    if (argc < 3) {
+      fprintf(stderr, "Too few arguments!\n\n");
+    } else {
+      fprintf(stderr, "Range end not specified! %d arguments supplied.\n\n",
+              argc);
+    }
+    fprintf(stderr, "Usage: %s fontfile size ([first] [last])*\n", argv[0]);
+    fprintf(stderr, "If there is no first and last element, the\n");
+    fprintf(stderr, "default range from ' '(%d) to '~'(%d) will be used.\n\n",
+            first, last);
+    fprintf(stderr, "Examples\n========\n");
+    fprintf(stderr, "  Extract Japanese Hiragana, size 12:\n");
+    fprintf(stderr, "          %s hiragana_font.otf 12 12353 12447\n", argv[0]);
+    fprintf(stderr, "  Extract with default range, size 18:\n");
+    fprintf(stderr, "          %s my_font.otf 18\n", argv[0]);
+    fprintf(stderr, "  Extract only until 'Z', size 22:\n");
+    fprintf(stderr, "          %s my_font.otf 22 0x5a\n", argv[0]);
+    fprintf(
+        stderr,
+        "  Extract Korean Hangul Jamo basic consonants and vovels, size 16:\n");
+    fprintf(stderr,
+            "          %s jamo_font.otf 16 0x1100 0x1112 0x1161 0x1169 0x116d "
+            "0x116e 0x1172 0x1175\n",
+            argv[0]);
     return 1;
   }
 
-  size = atoi(argv[2]);
-
-  if (argc == 4) {
-    last = atoi(argv[3]);
-  } else if (argc == 5) {
-    first = atoi(argv[3]);
-    last = atoi(argv[4]);
-  }
-
-  if (last < first) {
-    i = first;
-    first = last;
-    last = i;
-  }
+  size = to_num(argv[2]);
 
   ptr = strrchr(argv[1], '/'); // Find last slash in filename
   if (ptr)
@@ -94,26 +212,37 @@ int main(int argc, char *argv[]) {
   else
     ptr = argv[1]; // No path; font in local dir.
 
-  // Allocate space for font name and glyph table
-  if ((!(fontName = malloc(strlen(ptr) + 20))) ||
-      (!(table = (GFXglyph *)malloc((last - first + 1) * sizeof(GFXglyph))))) {
+  int num_ranges = argc <= 5 ? 1 : (argc - 5) / 2 + 1;
+  if (!(ranges = (ch_range *)malloc(num_ranges * sizeof(ch_range)))) {
     fprintf(stderr, "Malloc error\n");
     return 1;
   }
 
-  // Derive font table names from filename.  Period (filename
-  // extension) is truncated and replaced with the font size & bits.
-  strcpy(fontName, ptr);
-  ptr = strrchr(fontName, '.'); // Find last period (file ext)
-  if (!ptr)
-    ptr = &fontName[strlen(fontName)]; // If none, append
-  // Insert font size and 7/8 bit.  fontName was alloc'd w/extra
-  // space to allow this, we're not sprintfing into Forbidden Zone.
-  sprintf(ptr, "%dpt%db", size, (last > 127) ? 8 : 7);
-  // Space and punctuation chars in name replaced w/ underscores.
-  for (i = 0; (c = fontName[i]); i++) {
-    if (isspace(c) || ispunct(c))
-      fontName[i] = '_';
+  ranges[0].first = first;
+  ranges[0].last = last;
+
+  if (argc == 4) {
+    ranges[0].last = to_num(argv[3]);
+    range_swap_if_needed(&ranges[0]);
+    total_num = range_count(&ranges[0]);
+  } else if (argc > 4) {
+    for (i = 0; i < num_ranges; ++i) {
+      ranges[i].first = to_num(argv[5 + i * 2 - 2]);
+      ranges[i].last = to_num(argv[5 + i * 2 - 1]);
+      range_swap_if_needed(&ranges[i]);
+      total_num += range_count(&ranges[i]);
+    }
+  } else {
+    range_swap_if_needed(&ranges[0]);
+    total_num = range_count(&ranges[0]);
+  }
+
+  // Allocate space for font name and glyph table
+  if ((!(fontName = malloc(strlen(ptr) + 22))) ||
+      (!(table = (GFXglyph *)malloc(total_num * sizeof(GFXglyph)))) ||
+      (!(names = (glyph_name *)malloc(total_num * sizeof(glyph_name))))) {
+    fprintf(stderr, "Malloc error\n");
+    return 1;
   }
 
   // Init FreeType lib, load font
@@ -135,92 +264,77 @@ int main(int argc, char *argv[]) {
     FT_Done_FreeType(library);
     return err;
   }
-
-  // << 6 because '26dot6' fixed-point format
-  FT_Set_Char_Size(face, size << 6, 0, DPI, 0);
-
   // Currently all symbols from 'first' to 'last' are processed.
   // Fonts may contain WAY more glyphs than that, but this code
   // will need to handle encoding stuff to deal with extracting
   // the right symbols, and that's not done yet.
   // fprintf(stderr, "%ld glyphs\n", face->num_glyphs);
 
+  // Derive font table names from filename.  Period (filename
+  // extension) is truncated and replaced with the font size & bits.
+  strcpy(fontName, ptr);
+  ptr = strrchr(fontName, '.'); // Find last period (file ext)
+  if (!ptr)
+    ptr = &fontName[strlen(fontName)]; // If none, append
+  // Insert font size and 7/8/16 bit.  fontName was alloc'd w/extra
+  // space to allow this, we're not sprintfing into Forbidden Zone.
+  sprintf(ptr, "%dpt%db", size,
+          (ranges[num_ranges - 1].last > 127)
+              ? (ranges[num_ranges - 1].last > 255) ? 16 : 8
+              : 7);
+  // Space and punctuation chars in name replaced w/ underscores.
+  for (i = 0; (c = fontName[i]); i++) {
+    if (isspace(c) || ispunct(c))
+      fontName[i] = '_';
+  }
+
   printf("const uint8_t %sBitmaps[] PROGMEM = {\n  ", fontName);
 
-  // Process glyphs and output huge bitmap data array
-  for (i = first, j = 0; i <= last; i++, j++) {
-    // MONO renderer provides clean image with perfect crop
-    // (no wasted pixels) via bitmap struct.
-    if ((err = FT_Load_Char(face, i, FT_LOAD_TARGET_MONO))) {
-      fprintf(stderr, "Error %d loading char '%c'\n", err, i);
-      continue;
-    }
+  for (i = 0; i < num_ranges; ++i) {
+    // In case we want to se the range segemnts in the bitmap:
+    // printf(" /*range %d (0x%x - 0x%x) */ ", i, ranges[i].first,
+    // ranges[i].last);
+    err = extract_range(table, names, &face, size, ranges[i].first, ranges[i].last,
+                        &bitmapOffset);
+  }
 
-    if ((err = FT_Render_Glyph(face->glyph, FT_RENDER_MODE_MONO))) {
-      fprintf(stderr, "Error %d rendering char '%c'\n", err, i);
-      continue;
-    }
-
-    if ((err = FT_Get_Glyph(face->glyph, &glyph))) {
-      fprintf(stderr, "Error %d getting glyph '%c'\n", err, i);
-      continue;
-    }
-
-    bitmap = &face->glyph->bitmap;
-    g = (FT_BitmapGlyphRec *)glyph;
-
-    // Minimal font and per-glyph information is stored to
-    // reduce flash space requirements.  Glyph bitmaps are
-    // fully bit-packed; no per-scanline pad, though end of
-    // each character may be padded to next byte boundary
-    // when needed.  16-bit offset means 64K max for bitmaps,
-    // code currently doesn't check for overflow.  (Doesn't
-    // check that size & offsets are within bounds either for
-    // that matter...please convert fonts responsibly.)
-    table[j].bitmapOffset = bitmapOffset;
-    table[j].width = bitmap->width;
-    table[j].height = bitmap->rows;
-    table[j].xAdvance = face->glyph->advance.x >> 6;
-    table[j].xOffset = g->left;
-    table[j].yOffset = 1 - g->top;
-
-    for (y = 0; y < bitmap->rows; y++) {
-      for (x = 0; x < bitmap->width; x++) {
-        byte = x / 8;
-        bit = 0x80 >> (x & 7);
-        enbit(bitmap->buffer[y * bitmap->pitch + byte] & bit);
-      }
-    }
-
-    // Pad end of char bitmap to next byte boundary if needed
-    int n = (bitmap->width * bitmap->rows) & 7;
-    if (n) {     // Pixel count not an even multiple of 8?
-      n = 8 - n; // # bits to next multiple
-      while (n--)
-        enbit(0);
-    }
-    bitmapOffset += (bitmap->width * bitmap->rows + 7) / 8;
-
-    FT_Done_Glyph(glyph);
+  if (err != 0) {
+    FT_Done_FreeType(library);
+    return err;
   }
 
   printf(" };\n\n"); // End bitmap array
 
   // Output glyph attributes table (one per character)
   printf("const GFXglyph %sGlyphs[] PROGMEM = {\n", fontName);
-  for (i = first, j = 0; i <= last; i++, j++) {
-    printf("  { %5d, %3d, %3d, %3d, %4d, %4d }", table[j].bitmapOffset,
-           table[j].width, table[j].height, table[j].xAdvance, table[j].xOffset,
-           table[j].yOffset);
-    if (i < last) {
-      printf(",   // 0x%02X", i);
-      if ((i >= ' ') && (i <= '~')) {
-        printf(" '%c'", i);
+  j = 0;
+  for (r = 0; r < num_ranges; ++r) {
+    printf("// bmpOff,   w,   h,xAdv, xOff, yOff      range %d (0x%x - 0x%x)\n",
+           r, ranges[r].first, ranges[r].last);
+    for (i = ranges[r].first; i <= ranges[r].last; ++i) {
+      printf("  { %5d, %3d, %3d, %3d, %4d, %4d }", table[j].bitmapOffset,
+             table[j].width, table[j].height, table[j].xAdvance,
+             table[j].xOffset, table[j].yOffset);
+      if (i < ranges[r].last || r < num_ranges - 1) {
+        printf(",   // 0x%02X %s", i, names[j].name);
+        if ((i >= ' ') && (i <= '~')) {
+          printf(" '%c'", i);
+        }
+        putchar('\n');
       }
-      putchar('\n');
+      j++;
+    }
+    if (r != num_ranges - 1) {
+      for (i = ranges[r].last + 1; i < ranges[r + 1].first; ++i) {
+        printf("  { %5d, %3d, %3d, %3d, %4d, %4d },   // 0x%02X (skip)\n", 0, 0,
+               0, 0, 0, 0, i);
+        skipped++;
+      }
     }
   }
-  printf(" }; // 0x%02X", last);
+
+  last = ranges[num_ranges - 1].last;
+  printf(" }; // 0x%02X %s", last, names[j-1].name);
   if ((last >= ' ') && (last <= '~'))
     printf(" '%c'", last);
   printf("\n\n");
@@ -231,12 +345,14 @@ int main(int argc, char *argv[]) {
   printf("  (GFXglyph *)%sGlyphs,\n", fontName);
   if (face->size->metrics.height == 0) {
     // No face height info, assume fixed width and get from a glyph.
-    printf("  0x%02X, 0x%02X, %d };\n\n", first, last, table[0].height);
+    printf("  0x%02X, 0x%02X, %d /*height*/ };\n\n", ranges[0].first,
+           ranges[num_ranges - 1].last, table[0].height);
   } else {
-    printf("  0x%02X, 0x%02X, %ld };\n\n", first, last,
-           face->size->metrics.height >> 6);
+    printf("  0x%02X, // first\n  0x%02X, // last\n  %ld  // height\n };\n\n", ranges[0].first,
+           ranges[num_ranges - 1].last, face->size->metrics.height >> 6);
   }
-  printf("// Approx. %d bytes\n", bitmapOffset + (last - first + 1) * 7 + 7);
+
+  printf("// Approx. %d bytes\n", bitmapOffset + (total_num+skipped) * 7 + 7);
   // Size estimate is based on AVR struct and pointer sizes;
   // actual size may vary.
 
