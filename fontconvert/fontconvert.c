@@ -101,7 +101,7 @@ int extract_range(GFXglyph *table, glyph_name* names, FT_Face *face, int size, i
     }
 
     //the name is optional
-    if ((err = FT_Get_Glyph_Name(*face, i, names[j].name, 32))) {
+    if ((err = FT_Get_Glyph_Name(*face, (*face)->glyph->glyph_index, names[j].name, 32))) {
       names[j].name[0] = 0;
     }
 
@@ -264,6 +264,14 @@ int main(int argc, char *argv[]) {
     FT_Done_FreeType(library);
     return err;
   }
+
+  printf("// ");
+  for (i = 0; i < argc; ++i) {
+    printf("%s ", argv[i]);
+  }
+  printf("\n// Visualize your font via "
+         "https://github.com/tchapi/Adafruit-GFX-Font-Customiser\n\n");
+
   // Currently all symbols from 'first' to 'last' are processed.
   // Fonts may contain WAY more glyphs than that, but this code
   // will need to handle encoding stuff to deal with extracting
@@ -316,11 +324,11 @@ int main(int argc, char *argv[]) {
              table[j].width, table[j].height, table[j].xAdvance,
              table[j].xOffset, table[j].yOffset);
       if (i < ranges[r].last || r < num_ranges - 1) {
-        printf(",   // 0x%02X %s", i, names[j].name);
+        printf(",   // 0x%02X %s ", i, names[j].name);
         if ((i >= ' ') && (i <= '~')) {
           printf(" '%c'", i);
         }
-        putchar('\n');
+        printf(" (#%d)\n", j);
       }
       j++;
     }
@@ -334,10 +342,11 @@ int main(int argc, char *argv[]) {
   }
 
   last = ranges[num_ranges - 1].last;
-  printf(" }; // 0x%02X %s", last, names[j-1].name);
-  if ((last >= ' ') && (last <= '~'))
+  printf(" }; // 0x%02X %s ", last, names[j-1].name);
+  if ((last >= ' ') && (last <= '~')) {
     printf(" '%c'", last);
-  printf("\n\n");
+  }
+  printf(" (#%d)\n\n", j-1);
 
   // Output font structure
   printf("const GFXfont %s PROGMEM = {\n", fontName);
