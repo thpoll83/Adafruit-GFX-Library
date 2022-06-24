@@ -18,12 +18,16 @@ See notes at end for glyph nomenclature & other tidbits.
 #include <ft2build.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <getopt.h>
 #include FT_GLYPH_H
 #include FT_MODULE_H
 #include FT_TRUETYPE_DRIVER_H
 #include "../gfxfont.h" // Adafruit_GFX font structures
 
 #define DPI 141 // Approximate res. of Adafruit 2.8" TFT
+
+extern char *optarg;
+extern int optind, opterr, optopt;
 
 typedef struct ch_range {
   int first;
@@ -156,89 +160,129 @@ int extract_range(GFXglyph *table, glyph_name* names, FT_Face *face, int size, i
   return 0;
 }
 
+void print_usage(char *argv[]) {
+  fprintf(stderr, "usage: %s -f FONTFILE [-s SIZE] [-v FONT_VARIANT_NAME] [RANGES]\n", argv[0]);
+  fprintf(stderr, "  options:\n");
+  fprintf(stderr, "    -f font file name to use (usually some .ttf or .otf file)\n");
+  fprintf(stderr, "    -s optional size of the generated pixel font (default is 12)\n");
+  fprintf(stderr, "    -v optional font variant name for the generated code (avoiding name clashes)\n");
+  fprintf(stderr, "    RANGES are pairs of values or a single last value (with start=default): last|(first last)+\n");
+  fprintf(stderr, "      if there is no range, the default from ' '(32) to '~'(126) will be used\n\n");
+  fprintf(stderr, "  examples:\n  =========\n");
+  fprintf(stderr, "    extract Japanese Hiragana, size 12:\n");
+  fprintf(stderr, "      %s -f../../fonts/hiragana_font.otf -s 12 12353 12447\n", argv[0]);
+  fprintf(stderr, "    extract with default range, size 18:\n");
+  fprintf(stderr, "      %s -f../../fonts/my_font.otf -s18\n", argv[0]);
+  fprintf(stderr, "    extract only until 'Z', size 22:\n");
+  fprintf(stderr, "      %s -f../../fonts/my_font.otf -s22 0x5a\n", argv[0]);
+  fprintf(stderr, "    extract Korean Hangul Jamo basic consonants and vowels, size 16:\n");
+  fprintf(stderr, "      %s -f jamo_font.otf -v _Consonants_ -s 16 0x1100 0x1112\n", argv[0]); 
+  fprintf(stderr, "      %s -f jamo_font.otf -v _Vowels_ -s 16 0x1161 0x1169 0x116d 0x116e 0x1172 0x1175\n", argv[0]); 
+}
+
+int parse_args(int argc, char *argv[], int* num_ranges, int* size, char** fontFileName, char** fontVariantName) {
+  int opt;
+  
+  if(argc<=1) {
+    return -1;
+  }
+
+  while ((opt = getopt(argc, argv, "s:f:v:")) != -1) {
+    switch (opt) {
+    case 's':
+      if (!optarg) {
+        printf("Missing value for argument s!\n");
+        return -1;
+      }
+      *size = to_num(optarg);
+      break;
+
+    case 'f':
+      if (!optarg) {
+        printf("Missing value for argument f!\n");
+        return -1;
+      }
+      *fontFileName = strdup(optarg);
+      break;
+
+    case 'v':
+      if (!optarg) {
+        printf("Missing value for argument v!\n");
+        return -1;
+      }
+      *fontVariantName = strdup(optarg);
+      break;
+
+    case '?':
+      printf("Ignoring unknown option: %c\n", optopt);
+      break;
+
+    case ':':
+      printf("Missing argument for %c!\n", optopt);
+      return -1;
+    }
+  }
+
+  if (optind < argc) {
+    *num_ranges = argc - optind;
+
+    if (*num_ranges == 1) {
+      *num_ranges = -2;
+    } else if ((*num_ranges % 2) != 0) {
+      fprintf(stderr, "Range end not specified! %d free arguments supplied.\n\n", *num_ranges);
+      return -1;
+    }
+    *num_ranges/=2;
+  }
+    
+  return 0;
+}
+
 int main(int argc, char *argv[]) {
   FT_Library library;
   GFXglyph *table;
   glyph_name *names;
   FT_Face face;
   ch_range *ranges;
-  int first = ' ';
-  int last = '~';
-  int total_num = 0, skipped = 0;
-  int err, size, i, j, r;
-  char *fontName, *ptr, c;
+  int num_ranges = 0, total_num = 0, skipped = 0;
+  int err, size = 12, i, j, r;
+  char *fontName, *fontFileName = NULL, *fontVariantName = NULL;
+  char c;
   int bitmapOffset = 0;
 
-  // Parse command line.  Valid syntaxes are:
-  //   fontconvert [filename] [size]
-  //   fontconvert [filename] [size] [last char]
-  //   fontconvert [filename] [size] [first char] [last char]
-  // Unless overridden, default first and last chars are
-  // ' ' (space) and '~', respectively
-
-  if (argc < 3 || (argc > 5 && (argc % 2) == 0)) {
-    if (argc < 3) {
-      fprintf(stderr, "Too few arguments!\n\n");
-    } else {
-      fprintf(stderr, "Range end not specified! %d arguments supplied.\n\n",
-              argc);
-    }
-    fprintf(stderr, "Usage: %s fontfile size ([first] [last])*\n", argv[0]);
-    fprintf(stderr, "If there is no first and last element, the\n");
-    fprintf(stderr, "default range from ' '(%d) to '~'(%d) will be used.\n\n",
-            first, last);
-    fprintf(stderr, "Examples\n========\n");
-    fprintf(stderr, "  Extract Japanese Hiragana, size 12:\n");
-    fprintf(stderr, "          %s hiragana_font.otf 12 12353 12447\n", argv[0]);
-    fprintf(stderr, "  Extract with default range, size 18:\n");
-    fprintf(stderr, "          %s my_font.otf 18\n", argv[0]);
-    fprintf(stderr, "  Extract only until 'Z', size 22:\n");
-    fprintf(stderr, "          %s my_font.otf 22 0x5a\n", argv[0]);
-    fprintf(
-        stderr,
-        "  Extract Korean Hangul Jamo basic consonants and vovels, size 16:\n");
-    fprintf(stderr,
-            "          %s jamo_font.otf 16 0x1100 0x1112 0x1161 0x1169 0x116d "
-            "0x116e 0x1172 0x1175\n",
-            argv[0]);
+  if(parse_args(argc, argv, &num_ranges, &size, &fontFileName, &fontVariantName)!=0 || fontFileName==NULL) {
+    print_usage(argv);
     return 1;
   }
 
-  size = to_num(argv[2]);
-
-  ptr = strrchr(argv[1], '/'); // Find last slash in filename
-  if (ptr)
-    ptr++; // First character of filename (path stripped)
-  else
-    ptr = argv[1]; // No path; font in local dir.
-
-  int num_ranges = argc <= 5 ? 1 : (argc - 5) / 2 + 1;
-  if (!(ranges = (ch_range *)malloc(num_ranges * sizeof(ch_range)))) {
+  if (!(ranges = (ch_range *)malloc((num_ranges <= 0 ? 1 : num_ranges) * sizeof(ch_range)))) {
     fprintf(stderr, "Malloc error\n");
     return 1;
   }
 
-  ranges[0].first = first;
-  ranges[0].last = last;
+  ranges[0].first = ' ';
+  ranges[0].last = '~';
 
-  if (argc == 4) {
-    ranges[0].last = to_num(argv[3]);
+  if (num_ranges < 0) {
+    num_ranges = 1; //default range
+    ranges[0].last = to_num(argv[optind]);
     range_swap_if_needed(&ranges[0]);
     total_num = range_count(&ranges[0]);
-  } else if (argc > 4) {
+  } else if (num_ranges > 0) {
     for (i = 0; i < num_ranges; ++i) {
-      ranges[i].first = to_num(argv[5 + i * 2 - 2]);
-      ranges[i].last = to_num(argv[5 + i * 2 - 1]);
+      ranges[i].first = to_num(argv[optind++]);
+      ranges[i].last = to_num(argv[optind++]);
       range_swap_if_needed(&ranges[i]);
       total_num += range_count(&ranges[i]);
     }
-  } else {
+  } else { // num_ranges == 0
+    num_ranges = 1; //default range
     range_swap_if_needed(&ranges[0]);
     total_num = range_count(&ranges[0]);
   }
 
   // Allocate space for font name and glyph table
-  if ((!(fontName = malloc(strlen(ptr) + 22))) ||
+  if ((!(fontName = malloc(strlen(fontFileName) + 22))) ||
       (!(table = (GFXglyph *)malloc(total_num * sizeof(GFXglyph)))) ||
       (!(names = (glyph_name *)malloc(total_num * sizeof(glyph_name))))) {
     fprintf(stderr, "Malloc error\n");
@@ -259,7 +303,7 @@ int main(int argc, char *argv[]) {
   FT_Property_Set(library, "truetype", "interpreter-version",
                   &interpreter_version);
 
-  if ((err = FT_New_Face(library, argv[1], 0, &face))) {
+  if ((err = FT_New_Face(library, fontFileName, 0, &face))) {
     fprintf(stderr, "Font load error: %d", err);
     FT_Done_FreeType(library);
     return err;
@@ -270,23 +314,24 @@ int main(int argc, char *argv[]) {
     printf("%s ", argv[i]);
   }
   printf("\n// Visualize your font via "
-         "https://github.com/tchapi/Adafruit-GFX-Font-Customiser\n\n");
-
-  // Currently all symbols from 'first' to 'last' are processed.
-  // Fonts may contain WAY more glyphs than that, but this code
-  // will need to handle encoding stuff to deal with extracting
-  // the right symbols, and that's not done yet.
-  // fprintf(stderr, "%ld glyphs\n", face->num_glyphs);
+         "https://tchapi.github.io/Adafruit-GFX-Font-Customiser\n\n");
 
   // Derive font table names from filename.  Period (filename
   // extension) is truncated and replaced with the font size & bits.
-  strcpy(fontName, ptr);
-  ptr = strrchr(fontName, '.'); // Find last period (file ext)
-  if (!ptr)
-    ptr = &fontName[strlen(fontName)]; // If none, append
+  const char* start = strrchr(fontFileName, '/');
+  if(start) {    
+    strcpy(fontName, start+1);
+  } else {
+    strcpy(fontName, fontFileName);
+  }
+
+  free(fontFileName);
+  fontFileName = strrchr(fontName, '.'); // Find last period (file ext)
+  if (!fontFileName)
+    fontFileName = &fontName[strlen(fontName)]; // If none, append
   // Insert font size and 7/8/16 bit.  fontName was alloc'd w/extra
   // space to allow this, we're not sprintfing into Forbidden Zone.
-  sprintf(ptr, "%dpt%db", size,
+  sprintf(fontFileName, "%s%dpt%db", fontVariantName==NULL?"":fontVariantName, size,
           (ranges[num_ranges - 1].last > 127)
               ? (ranges[num_ranges - 1].last > 255) ? 16 : 8
               : 7);
@@ -340,11 +385,10 @@ int main(int argc, char *argv[]) {
       }
     }
   }
-
-  last = ranges[num_ranges - 1].last;
-  printf(" }; // 0x%02X %s ", last, names[j-1].name);
-  if ((last >= ' ') && (last <= '~')) {
-    printf(" '%c'", last);
+  
+  printf(" }; // 0x%02X %s ", ranges[num_ranges - 1].last, names[j-1].name);
+  if ((ranges[num_ranges - 1].last >= ' ') && (ranges[num_ranges - 1].last <= '~')) {
+    printf(" '%c'", ranges[num_ranges - 1].last);
   }
   printf(" (#%d)\n\n", j-1);
 
