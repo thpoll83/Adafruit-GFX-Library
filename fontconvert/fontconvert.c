@@ -16,9 +16,12 @@ See notes at end for glyph nomenclature & other tidbits.
 
 #include <ctype.h>
 #include <ft2build.h>
+#include <getopt.h>
+#include <pwd.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <getopt.h>
+#include <sys/types.h>
+#include <unistd.h>
 #include FT_GLYPH_H
 #include FT_MODULE_H
 #include FT_TRUETYPE_DRIVER_H
@@ -81,8 +84,8 @@ int range_count(const ch_range *range) {
   return range->last - range->first + 1;
 }
 
-int extract_range(GFXglyph *table, glyph_name* names, FT_Face *face, int size, int first, int last,
-                  int *bitmapOffset) {
+int extract_range(GFXglyph *table, glyph_name *names, FT_Face *face, int size,
+                  int first, int last, int *bitmapOffset) {
   int i, err, x, y, byte;
   static int j = 0;
 
@@ -104,8 +107,9 @@ int extract_range(GFXglyph *table, glyph_name* names, FT_Face *face, int size, i
       continue;
     }
 
-    //the name is optional
-    if ((err = FT_Get_Glyph_Name(*face, (*face)->glyph->glyph_index, names[j].name, 32))) {
+    // the name is optional
+    if ((err = FT_Get_Glyph_Name(*face, (*face)->glyph->glyph_index,
+                                 names[j].name, 32))) {
       names[j].name[0] = 0;
     }
 
@@ -161,29 +165,46 @@ int extract_range(GFXglyph *table, glyph_name* names, FT_Face *face, int size, i
 }
 
 void print_usage(char *argv[]) {
-  fprintf(stderr, "usage: %s -f FONTFILE [-s SIZE] [-v FONT_VARIANT_NAME] [RANGES]\n", argv[0]);
+  fprintf(stderr,
+          "usage: %s -f FONTFILE [-s SIZE] [-v FONT_VARIANT_NAME] [RANGES]\n",
+          argv[0]);
   fprintf(stderr, "  options:\n");
-  fprintf(stderr, "    -f font file name to use (usually some .ttf or .otf file)\n");
-  fprintf(stderr, "    -s optional size of the generated pixel font (default is 12)\n");
-  fprintf(stderr, "    -v optional font variant name for the generated code (avoiding name clashes)\n");
-  fprintf(stderr, "    RANGES are pairs of values or a single last value (with start=default): last|(first last)+\n");
-  fprintf(stderr, "      if there is no range, the default from ' '(32) to '~'(126) will be used\n\n");
+  fprintf(stderr,
+          "    -f font file name to use (usually some .ttf or .otf file)\n");
+  fprintf(stderr,
+          "    -s optional size of the generated pixel font (default is 12)\n");
+  fprintf(stderr, "    -v optional font variant name for the generated code "
+                  "(avoiding name clashes)\n");
+  fprintf(stderr, "    RANGES are pairs of values or a single last value (with "
+                  "start=default): last|(first last)+\n");
+  fprintf(stderr, "      if there is no range, the default from ' '(32) to "
+                  "'~'(126) will be used\n\n");
   fprintf(stderr, "  examples:\n  =========\n");
   fprintf(stderr, "    extract Japanese Hiragana, size 12:\n");
-  fprintf(stderr, "      %s -f../../fonts/hiragana_font.otf -s 12 12353 12447\n", argv[0]);
+  fprintf(stderr,
+          "      %s -f../../fonts/hiragana_font.otf -s 12 12353 12447\n",
+          argv[0]);
   fprintf(stderr, "    extract with default range, size 18:\n");
   fprintf(stderr, "      %s -f../../fonts/my_font.otf -s18\n", argv[0]);
   fprintf(stderr, "    extract only until 'Z', size 22:\n");
   fprintf(stderr, "      %s -f../../fonts/my_font.otf -s22 0x5a\n", argv[0]);
-  fprintf(stderr, "    extract Korean Hangul Jamo basic consonants and vowels, size 16:\n");
-  fprintf(stderr, "      %s -f jamo_font.otf -v _Consonants_ -s 16 0x1100 0x1112\n", argv[0]); 
-  fprintf(stderr, "      %s -f jamo_font.otf -v _Vowels_ -s 16 0x1161 0x1169 0x116d 0x116e 0x1172 0x1175\n", argv[0]); 
+  fprintf(
+      stderr,
+      "    extract Korean Hangul Jamo basic consonants and vowels, size 16:\n");
+  fprintf(stderr,
+          "      %s -f jamo_font.otf -v _Consonants_ -s 16 0x1100 0x1112\n",
+          argv[0]);
+  fprintf(stderr,
+          "      %s -f jamo_font.otf -v _Vowels_ -s 16 0x1161 0x1169 0x116d "
+          "0x116e 0x1172 0x1175\n",
+          argv[0]);
 }
 
-int parse_args(int argc, char *argv[], int* num_ranges, int* size, char** fontFileName, char** fontVariantName) {
+int parse_args(int argc, char *argv[], int *num_ranges, int *size,
+               char **fontFileName, char **fontVariantName) {
   int opt;
-  
-  if(argc<=1) {
+
+  if (argc <= 1) {
     return -1;
   }
 
@@ -229,12 +250,14 @@ int parse_args(int argc, char *argv[], int* num_ranges, int* size, char** fontFi
     if (*num_ranges == 1) {
       *num_ranges = -2;
     } else if ((*num_ranges % 2) != 0) {
-      fprintf(stderr, "Range end not specified! %d free arguments supplied.\n\n", *num_ranges);
+      fprintf(stderr,
+              "Range end not specified! %d free arguments supplied.\n\n",
+              *num_ranges);
       return -1;
     }
-    *num_ranges/=2;
+    *num_ranges /= 2;
   }
-    
+
   return 0;
 }
 
@@ -250,12 +273,15 @@ int main(int argc, char *argv[]) {
   char c;
   int bitmapOffset = 0;
 
-  if(parse_args(argc, argv, &num_ranges, &size, &fontFileName, &fontVariantName)!=0 || fontFileName==NULL) {
+  if (parse_args(argc, argv, &num_ranges, &size, &fontFileName,
+                 &fontVariantName) != 0 ||
+      fontFileName == NULL) {
     print_usage(argv);
     return 1;
   }
 
-  if (!(ranges = (ch_range *)malloc((num_ranges <= 0 ? 1 : num_ranges) * sizeof(ch_range)))) {
+  if (!(ranges = (ch_range *)malloc((num_ranges <= 0 ? 1 : num_ranges) *
+                                    sizeof(ch_range)))) {
     fprintf(stderr, "Malloc error\n");
     return 1;
   }
@@ -264,7 +290,7 @@ int main(int argc, char *argv[]) {
   ranges[0].last = '~';
 
   if (num_ranges < 0) {
-    num_ranges = 1; //default range
+    num_ranges = 1; // default range
     ranges[0].last = to_num(argv[optind]);
     range_swap_if_needed(&ranges[0]);
     total_num = range_count(&ranges[0]);
@@ -275,20 +301,13 @@ int main(int argc, char *argv[]) {
       range_swap_if_needed(&ranges[i]);
       total_num += range_count(&ranges[i]);
     }
-  } else { // num_ranges == 0
-    num_ranges = 1; //default range
+  } else {          // num_ranges == 0
+    num_ranges = 1; // default range
     range_swap_if_needed(&ranges[0]);
     total_num = range_count(&ranges[0]);
   }
 
-  // Allocate space for font name and glyph table
-  if ((!(fontName = malloc(strlen(fontFileName) + 22))) ||
-      (!(table = (GFXglyph *)malloc(total_num * sizeof(GFXglyph)))) ||
-      (!(names = (glyph_name *)malloc(total_num * sizeof(glyph_name))))) {
-    fprintf(stderr, "Malloc error\n");
-    return 1;
-  }
-
+  // printf("// Loading FreeType library...\n");
   // Init FreeType lib, load font
   if ((err = FT_Init_FreeType(&library))) {
     fprintf(stderr, "FreeType init error: %d", err);
@@ -303,10 +322,31 @@ int main(int argc, char *argv[]) {
   FT_Property_Set(library, "truetype", "interpreter-version",
                   &interpreter_version);
 
-  if ((err = FT_New_Face(library, fontFileName, 0, &face))) {
+  // printf("// Loading front from %s\n", fontFileName);
+  if (fontFileName[0] == '~' && strlen(fontFileName) > 2) {
+    const char *homedir;
+
+    if ((homedir = getenv("HOME")) == NULL) {
+      homedir = getpwuid(getuid())->pw_dir;
+    }
+    chdir(homedir);
+    fontName = &fontFileName[2];
+  } else {
+    fontName = fontFileName;
+  }
+
+  if ((err = FT_New_Face(library, fontName, 0, &face))) {
     fprintf(stderr, "Font load error: %d", err);
     FT_Done_FreeType(library);
     return err;
+  }
+
+    // Allocate space for font name and glyph table
+  if ((!(fontName = malloc(strlen(fontFileName) + 22))) ||
+      (!(table = (GFXglyph *)malloc(total_num * sizeof(GFXglyph)))) ||
+      (!(names = (glyph_name *)malloc(total_num * sizeof(glyph_name))))) {
+    fprintf(stderr, "Malloc error\n");
+    return 1;
   }
 
   printf("// ");
@@ -318,9 +358,9 @@ int main(int argc, char *argv[]) {
 
   // Derive font table names from filename.  Period (filename
   // extension) is truncated and replaced with the font size & bits.
-  const char* start = strrchr(fontFileName, '/');
-  if(start) {    
-    strcpy(fontName, start+1);
+  const char *start = strrchr(fontFileName, '/');
+  if (start) {
+    strcpy(fontName, start + 1);
   } else {
     strcpy(fontName, fontFileName);
   }
@@ -331,7 +371,8 @@ int main(int argc, char *argv[]) {
     fontFileName = &fontName[strlen(fontName)]; // If none, append
   // Insert font size and 7/8/16 bit.  fontName was alloc'd w/extra
   // space to allow this, we're not sprintfing into Forbidden Zone.
-  sprintf(fontFileName, "%s%dpt%db", fontVariantName==NULL?"":fontVariantName, size,
+  sprintf(fontFileName, "%s%dpt%db",
+          fontVariantName == NULL ? "" : fontVariantName, size,
           (ranges[num_ranges - 1].last > 127)
               ? (ranges[num_ranges - 1].last > 255) ? 16 : 8
               : 7);
@@ -347,8 +388,8 @@ int main(int argc, char *argv[]) {
     // In case we want to se the range segemnts in the bitmap:
     // printf(" /*range %d (0x%x - 0x%x) */ ", i, ranges[i].first,
     // ranges[i].last);
-    err = extract_range(table, names, &face, size, ranges[i].first, ranges[i].last,
-                        &bitmapOffset);
+    err = extract_range(table, names, &face, size, ranges[i].first,
+                        ranges[i].last, &bitmapOffset);
   }
 
   if (err != 0) {
@@ -385,12 +426,13 @@ int main(int argc, char *argv[]) {
       }
     }
   }
-  
-  printf(" }; // 0x%02X %s ", ranges[num_ranges - 1].last, names[j-1].name);
-  if ((ranges[num_ranges - 1].last >= ' ') && (ranges[num_ranges - 1].last <= '~')) {
+
+  printf(" }; // 0x%02X %s ", ranges[num_ranges - 1].last, names[j - 1].name);
+  if ((ranges[num_ranges - 1].last >= ' ') &&
+      (ranges[num_ranges - 1].last <= '~')) {
     printf(" '%c'", ranges[num_ranges - 1].last);
   }
-  printf(" (#%d)\n\n", j-1);
+  printf(" (#%d)\n\n", j - 1);
 
   // Output font structure
   printf("const GFXfont %s PROGMEM = {\n", fontName);
@@ -401,11 +443,12 @@ int main(int argc, char *argv[]) {
     printf("  0x%02X, 0x%02X, %d /*height*/ };\n\n", ranges[0].first,
            ranges[num_ranges - 1].last, table[0].height);
   } else {
-    printf("  0x%02X, // first\n  0x%02X, // last\n  %ld  // height\n };\n\n", ranges[0].first,
-           ranges[num_ranges - 1].last, face->size->metrics.height >> 6);
+    printf("  0x%02X, // first\n  0x%02X, // last\n  %ld  // height\n };\n\n",
+           ranges[0].first, ranges[num_ranges - 1].last,
+           face->size->metrics.height >> 6);
   }
 
-  printf("// Approx. %d bytes\n", bitmapOffset + (total_num+skipped) * 7 + 7);
+  printf("// Approx. %d bytes\n", bitmapOffset + (total_num + skipped) * 7 + 7);
   // Size estimate is based on AVR struct and pointer sizes;
   // actual size may vary.
 

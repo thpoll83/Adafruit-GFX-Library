@@ -10,3 +10,10 @@ fontconvert: fontconvert.c
 
 clean:
 	rm -f fontconvert
+
+ifeq ($(bindir),)
+    bindir := /usr/local/bin
+endif
+
+install: fontconvert
+	install -m 777 fontconvert $(bindir)/
