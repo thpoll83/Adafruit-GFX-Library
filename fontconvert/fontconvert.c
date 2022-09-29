@@ -175,6 +175,11 @@ void print_usage(char *argv[]) {
           "    -s optional size of the generated pixel font (default is 12)\n");
   fprintf(stderr, "    -v optional font variant name for the generated code "
                   "(avoiding name clashes)\n");
+  fprintf(stderr, "    -r optional value to override of the font height\n");
+  fprintf(stderr, "    -o provide an optional offset applied to all extracted"
+                  "unicode codepoints (can be negative with -n)\n");
+  fprintf(stderr, "    -n provide an optional negative offset applied to all"
+                  "extracted unicode codepoints (higher priority than -o)\n");
   fprintf(stderr, "    RANGES are pairs of values or a single last value (with "
                   "start=default): last|(first last)+\n");
   fprintf(stderr, "      if there is no range, the default from ' '(32) to "
@@ -200,7 +205,7 @@ void print_usage(char *argv[]) {
           argv[0]);
 }
 
-int parse_args(int argc, char *argv[], int *num_ranges, int *size,
+int parse_args(int argc, char *argv[], int *num_ranges, int *size, int *height, int *offset,
                char **fontFileName, char **fontVariantName) {
   int opt;
 
@@ -208,7 +213,7 @@ int parse_args(int argc, char *argv[], int *num_ranges, int *size,
     return -1;
   }
 
-  while ((opt = getopt(argc, argv, "s:f:v:")) != -1) {
+  while ((opt = getopt(argc, argv, "s:f:v:r:o:n:")) != -1) {
     switch (opt) {
     case 's':
       if (!optarg) {
@@ -216,6 +221,35 @@ int parse_args(int argc, char *argv[], int *num_ranges, int *size,
         return -1;
       }
       *size = to_num(optarg);
+      break;
+    
+    case 'r':
+      if (!optarg) {
+        printf("Missing value for argument r!\n");
+        return -1;
+      }
+      *height = to_num(optarg);
+      break;
+
+    case 'o':
+      if (!optarg) {
+        printf("Missing value for argument o!\n");
+        return -1;
+      }
+      if(*offset==0) {
+        *offset = to_num(optarg);
+      } else {
+        printf("Ignoring argument o!\n");
+      }
+      break;
+
+    case 'n':
+      if (!optarg) {
+        printf("Missing value for argument n!\n");
+        return -1;
+      }
+
+      *offset = -to_num(optarg);
       break;
 
     case 'f':
@@ -268,14 +302,15 @@ int main(int argc, char *argv[]) {
   FT_Face face;
   ch_range *ranges;
   int num_ranges = 0, total_num = 0, skipped = 0;
-  int err, size = 12, i, j, r;
+  int err, size = 12, height = 0, codepoint_offset = 0;
+  int i, j, r;
   char *fontName, *fontFileName = NULL, *fontVariantName = NULL;
   char c;
   int bitmapOffset = 0;
 
-  if (parse_args(argc, argv, &num_ranges, &size, &fontFileName,
-                 &fontVariantName) != 0 ||
-      fontFileName == NULL) {
+  if (parse_args(argc, argv, &num_ranges, &size, &height,
+                 &codepoint_offset, &fontFileName,
+                 &fontVariantName) != 0 || fontFileName == NULL) {
     print_usage(argv);
     return 1;
   }
@@ -420,8 +455,8 @@ int main(int argc, char *argv[]) {
     }
     if (r != num_ranges - 1) {
       for (i = ranges[r].last + 1; i < ranges[r + 1].first; ++i) {
-        printf("  { %5d, %3d, %3d, %3d, %4d, %4d },   // 0x%02X (skip)\n", 0, 0,
-               0, 0, 0, 0, i);
+        printf("  { %5d, %3d, %3d, %3d, %4d, %4d },   // 0x%02X (skip)\n",
+               0, 0, 0, 0, 0, 0, i);
         skipped++;
       }
     }
@@ -438,15 +473,20 @@ int main(int argc, char *argv[]) {
   printf("const GFXfont %s PROGMEM = {\n", fontName);
   printf("  (uint8_t  *)%sBitmaps,\n", fontName);
   printf("  (GFXglyph *)%sGlyphs,\n", fontName);
-  if (face->size->metrics.height == 0) {
-    // No face height info, assume fixed width and get from a glyph.
-    printf("  0x%02X, 0x%02X, %d /*height*/ };\n\n", ranges[0].first,
-           ranges[num_ranges - 1].last, table[0].height);
+
+  //consider height override
+  if(height!=0) {
+    face->size->metrics.height = height;
+  } else if(face->size->metrics.height == 0) {
+    face->size->metrics.height = table[0].height;
   } else {
-    printf("  0x%02X, // first\n  0x%02X, // last\n  %ld  // height\n };\n\n",
-           ranges[0].first, ranges[num_ranges - 1].last,
-           face->size->metrics.height >> 6);
+    face->size->metrics.height = (uint8_t)(face->size->metrics.height >> 6);
   }
+
+  printf("  0x%02X, // first\n  0x%02X, // last\n  %ld   //height\n };\n\n",
+           ranges[0].first + codepoint_offset,
+           ranges[num_ranges - 1].last + codepoint_offset,
+           face->size->metrics.height);
 
   printf("// Approx. %d bytes\n", bitmapOffset + (total_num + skipped) * 7 + 7);
   // Size estimate is based on AVR struct and pointer sizes;
