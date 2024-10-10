@@ -28,6 +28,23 @@ See notes at end for glyph nomenclature & other tidbits.
 
 #define DPI 141 // Approximate res. of Adafruit 2.8" TFT
 
+typedef struct settings {
+  int num_ranges;
+  int size;
+  int height;
+  int offset;
+  int render_mode;
+  int dump_codepoints;
+  unsigned long variantSelector;
+} FontSettings;
+static FontSettings s = {.num_ranges = 0,
+                         .size = 12,
+                         .height = 0,
+                         .offset = 0,
+                         .render_mode = 0,
+                         .dump_codepoints = 0,
+                         .variantSelector = 0};
+
 extern char *optarg;
 extern int optind, opterr, optopt;
 
@@ -135,25 +152,25 @@ int range_count(const ch_range *range) {
 //             }
 //         }
 
-int extract_range(GFXglyph *table, glyph_name *names, FT_Face *face, int size,
-                  FT_ULong first, FT_ULong last, int *bitmapOffset,
-                  int *render_mode) {
+int extract_range(GFXglyph *table, glyph_name *names, FT_Face face,
+                  FT_ULong first, FT_ULong last, int *bitmapOffset) {
   FT_ULong codepoint;
-  int err, x, y, byte = 0, rnd = 0;
+  int err;
   static int table_idx = 0;
 
   FT_Glyph glyph;
   FT_Bitmap *bitmap;
   FT_BitmapGlyphRec *rec;
 
-  uint8_t bit;
-
   // << 6 because '26dot6' fixed-point format
-  FT_Set_Char_Size(*face, size << 6, 0, DPI, 0);
+  FT_Set_Char_Size(face, s.size << 6, 0, DPI, 0);
 
   // Process glyphs and output huge bitmap data array
   for (codepoint = first; codepoint <= last; codepoint++, table_idx++) {
-    uint32_t glyph_index = FT_Get_Char_Index(*face, codepoint);
+    uint32_t glyph_index =
+        s.variantSelector == 0
+            ? FT_Get_Char_Index(face, codepoint)
+            : FT_Face_GetCharVariantIndex(face, codepoint, s.variantSelector);
 
     if (glyph_index == 0) {
       fprintf(stderr, "Error getting glyph index for codepoint '0x%lx'\n",
@@ -161,9 +178,9 @@ int extract_range(GFXglyph *table, glyph_name *names, FT_Face *face, int size,
       continue;
     }
 
-    if ((err = FT_Load_Glyph(*face, glyph_index,
-                             *render_mode == 1 ? FT_LOAD_TARGET_NORMAL
-                                               : FT_LOAD_TARGET_MONO))) {
+    if ((err = FT_Load_Glyph(face, glyph_index,
+                             s.render_mode == 1 ? FT_LOAD_TARGET_NORMAL | FT_LOAD_COLOR
+                                                : FT_LOAD_TARGET_MONO))) {
       fprintf(stderr,
               "Error %d loading codepoint '0x%lx' with glyph index %u\n", err,
               codepoint, glyph_index);
@@ -171,24 +188,24 @@ int extract_range(GFXglyph *table, glyph_name *names, FT_Face *face, int size,
     }
 
     // the name is optional
-    if ((err = FT_Get_Glyph_Name(*face, glyph_index, names[table_idx].name,
-                                 32))) {
+    if ((err =
+             FT_Get_Glyph_Name(face, glyph_index, names[table_idx].name, 32))) {
       names[table_idx].name[0] = 0;
     }
 
-    if ((err = FT_Render_Glyph((*face)->glyph, *render_mode == 1
-                                                   ? FT_RENDER_MODE_NORMAL
-                                                   : FT_RENDER_MODE_MONO))) {
+    if ((err = FT_Render_Glyph(face->glyph, s.render_mode == 1
+                                                ? FT_RENDER_MODE_NORMAL
+                                                : FT_RENDER_MODE_MONO))) {
       fprintf(stderr, "Error %d rendering char '%lu'\n", err, codepoint);
       continue;
     }
 
-    if ((err = FT_Get_Glyph((*face)->glyph, &glyph))) {
+    if ((err = FT_Get_Glyph(face->glyph, &glyph))) {
       fprintf(stderr, "Error %d getting glyph '%lu'\n", err, codepoint);
       continue;
     }
 
-    bitmap = &((*face)->glyph->bitmap);
+    bitmap = &(face->glyph->bitmap);
     rec = (FT_BitmapGlyphRec *)glyph;
 
     // Minimal font and per-glyph information is stored to
@@ -202,26 +219,27 @@ int extract_range(GFXglyph *table, glyph_name *names, FT_Face *face, int size,
     table[table_idx].bitmapOffset = *bitmapOffset;
     table[table_idx].width = bitmap->width;
     table[table_idx].height = bitmap->rows;
-    table[table_idx].xAdvance = (*face)->glyph->advance.x >> 6;
+    table[table_idx].xAdvance = face->glyph->advance.x >> 6;
     table[table_idx].xOffset = rec->left;
     table[table_idx].yOffset = 1 - rec->top;
 
     if (bitmap->rows == 0 || bitmap->width == 0) {
       fprintf(
           stderr,
-          "Info: No pixeldata found for 0x%lx. Pixel mode: %d Num Grays: %d ",
-          codepoint, bitmap->pixel_mode, bitmap->num_grays);
+          "Info: No pixeldata found for 0x%lx (VariantSelector 0x%lx cmap %d). Pixel mode: %d Num Grays: %d ",
+          codepoint, s.variantSelector, FT_Face_GetCharVariantIsDefault(face, codepoint, s.variantSelector), bitmap->pixel_mode, bitmap->num_grays);
       fprintf(stderr, "W: %d H: %d Format: %c%c%c%c\n", bitmap->width,
-              bitmap->rows, (char)((*face)->glyph->format >> 24),
-              (char)((*face)->glyph->format >> 16),
-              (char)((*face)->glyph->format >> 8),
-              (char)((*face)->glyph->format));
+              bitmap->rows, (char)(face->glyph->format >> 24),
+              (char)(face->glyph->format >> 16),
+              (char)(face->glyph->format >> 8), (char)(face->glyph->format));
       continue;
     }
 
+    int x, y, byte, rnd;
+    uint8_t bit;
     for (y = 0; y < bitmap->rows; y++) {
       for (x = 0; x < bitmap->width; x++) {
-        if (*render_mode == 1) {
+        if (s.render_mode == 1) {
           byte = bitmap->buffer[y * bitmap->pitch + x];
           if (byte == 0) {
             enbit(0); // avoid snowflakes
@@ -269,12 +287,15 @@ void print_usage(char *argv[]) {
                   "(avoiding name clashes)\n");
   fprintf(stderr, "    -r optional value to override of the font height\n");
   fprintf(stderr,
-          "    -g optional value to use grey scale font rendering with "
+          "    -g optional value to use gray scale font rendering with "
           "random dithering instead of monochromatic font rendering.\n");
   fprintf(stderr, "    -o provide an optional offset applied to all extracted "
                   "unicode codepoints (can be negative with -n)\n");
   fprintf(stderr, "    -n provide an optional negative offset applied to all "
                   "extracted unicode codepoints (higher priority than -o)\n");
+  fprintf(stderr,
+          "    -a provide an optional unicode character variant selector"
+          "(run with -d to view available variant selectors))\n");
   fprintf(stderr, "    RANGES are pairs of values or a single last value (with "
                   "start=default): last|(first last)+\n");
   fprintf(stderr, "      if there is no range, the default from ' '(32) to "
@@ -300,23 +321,30 @@ void print_usage(char *argv[]) {
           argv[0]);
 }
 
-int parse_args(int argc, char *argv[], int *num_ranges, int *size, int *height,
-               int *offset, char **fontFileName, char **fontVariantName,
-               int *render_mode, int *dump_codepoints) {
+int parse_args(int argc, char *argv[], char **fontFileName,
+               char **fontVariantName) {
   int opt;
+  int offset_used = 0;
 
   if (argc <= 1) {
     return -1;
   }
 
-  while ((opt = getopt(argc, argv, "dgs:f:v:r:o:n:")) != -1) {
+  while ((opt = getopt(argc, argv, "dgs:f:v:r:o:n:a:")) != -1) {
     switch (opt) {
+    case 'a':
+      if (!optarg) {
+        printf("Missing value for argument a!\n");
+        return -1;
+      }
+      s.variantSelector = to_ulong(optarg);
+      break;
     case 's':
       if (!optarg) {
         printf("Missing value for argument s!\n");
         return -1;
       }
-      *size = to_int(optarg);
+      s.size = to_int(optarg);
       break;
 
     case 'r':
@@ -324,7 +352,7 @@ int parse_args(int argc, char *argv[], int *num_ranges, int *size, int *height,
         printf("Missing value for argument r!\n");
         return -1;
       }
-      *height = to_int(optarg);
+      s.height = to_int(optarg);
       break;
 
     case 'o':
@@ -332,10 +360,10 @@ int parse_args(int argc, char *argv[], int *num_ranges, int *size, int *height,
         printf("Missing value for argument o!\n");
         return -1;
       }
-      if (*offset == 0) {
-        *offset = to_int(optarg);
+      if (offset_used == 0) {
+        s.offset = -to_int(optarg);
       } else {
-        printf("Ignoring argument o!\n");
+        printf("Ignoring argument o in favor of argument n!\n");
       }
       break;
 
@@ -345,7 +373,8 @@ int parse_args(int argc, char *argv[], int *num_ranges, int *size, int *height,
         return -1;
       }
 
-      *offset = -to_int(optarg);
+      s.offset = -to_int(optarg);
+      offset_used = 1;
       break;
 
     case 'f':
@@ -365,11 +394,11 @@ int parse_args(int argc, char *argv[], int *num_ranges, int *size, int *height,
       break;
 
     case 'g':
-      *render_mode = 1;
+      s.render_mode = 1;
       break;
 
     case 'd':
-      *dump_codepoints = 1;
+      s.dump_codepoints = 1;
       break;
 
     case '?':
@@ -383,20 +412,60 @@ int parse_args(int argc, char *argv[], int *num_ranges, int *size, int *height,
   }
 
   if (optind < argc) {
-    *num_ranges = argc - optind;
+    s.num_ranges = argc - optind;
 
-    if (*num_ranges == 1) {
-      *num_ranges = -2;
-    } else if ((*num_ranges % 2) != 0) {
+    if (s.num_ranges == 1) {
+      s.num_ranges = -2;
+    } else if ((s.num_ranges % 2) != 0) {
       fprintf(stderr,
               "Range end not specified! %d free arguments supplied.\n\n",
-              *num_ranges);
+              s.num_ranges);
       return -1;
     }
-    *num_ranges /= 2;
+    s.num_ranges /= 2;
   }
 
   return 0;
+}
+
+void dump_font_info(FT_Face face, const char *fontName) {
+  fprintf(stderr, "%s Stats:\n", fontName);
+  fprintf(stderr, "Num faces: %lu Num glyphs: %lu Maps: %d\n", face->num_faces,
+          face->num_glyphs, face->num_charmaps);
+
+  FT_UInt32 *selectors = FT_Face_GetVariantSelectors(face);
+  if (*selectors != 0) {
+    fprintf(stderr, "Selectors:");
+    while (*selectors != 0) {
+      fprintf(stderr, " 0x%x", *selectors);
+      selectors++;
+    }
+    fprintf(stderr, ";\n");
+  }
+
+  fprintf(stderr, "=============================================\n");
+  // Ensure an unicode characater map is loaded
+  FT_Select_Charmap(face, FT_ENCODING_UNICODE);
+
+  FT_UInt gid;
+  FT_ULong codepoint = FT_Get_First_Char(face, &gid);
+  while (gid != 0) {
+    FT_UInt32 *variants = FT_Face_GetVariantsOfChar(face, codepoint);
+    fprintf(stderr, "Codepoint: 0x%lx, gid: %u", codepoint, gid);
+
+    if (*variants != 0) {
+      fprintf(stderr, " Variants:");
+      while (*variants != 0) {
+        fprintf(stderr, " 0x%x", *variants);
+        variants++;
+      }
+      fprintf(stderr, ";");
+    }
+
+    fprintf(stderr, "\n");
+
+    codepoint = FT_Get_Next_Char(face, codepoint, &gid);
+  }
 }
 
 int main(int argc, char *argv[]) {
@@ -405,25 +474,21 @@ int main(int argc, char *argv[]) {
   glyph_name *names;
   FT_Face face;
   ch_range *ranges;
-  int render_mode = 0;
-  int num_ranges = 0, total_num = 0, skipped = 0;
-  int err, size = 12, height = 0, codepoint_offset = 0;
-  int i, j, r, dump_codepoints = 0;
+  int total_num = 0, skipped = 0;
+  int err;
+  int i, j, r;
   FT_ULong codepoint;
-  FT_UInt gid;
   char *fontName, *fontFileName = NULL, *fontVariantName = NULL;
   char c;
   int bitmapOffset = 0;
 
-  if (parse_args(argc, argv, &num_ranges, &size, &height, &codepoint_offset,
-                 &fontFileName, &fontVariantName, &render_mode,
-                 &dump_codepoints) != 0 ||
+  if (parse_args(argc, argv, &fontFileName, &fontVariantName) != 0 ||
       fontFileName == NULL) {
     print_usage(argv);
     return 1;
   }
 
-  if (!(ranges = (ch_range *)malloc((num_ranges <= 0 ? 1 : num_ranges) *
+  if (!(ranges = (ch_range *)malloc((s.num_ranges <= 0 ? 1 : s.num_ranges) *
                                     sizeof(ch_range)))) {
     fprintf(stderr, "Malloc error\n");
     return 1;
@@ -434,23 +499,24 @@ int main(int argc, char *argv[]) {
   ranges[0].first = ' ';
   ranges[0].last = '~';
 
-  if (num_ranges < 0) {
-    num_ranges = 1; // default range
+  if (s.num_ranges < 0) {
+    s.num_ranges = 1; // default range
     ranges[0].last = to_ulong(argv[optind]);
     range_swap_if_needed(&ranges[0]);
     total_num = range_count(&ranges[0]);
-  } else if (num_ranges > 0) {
-    for (i = 0; i < num_ranges; ++i) {
+  } else if (s.num_ranges > 0) {
+    for (i = 0; i < s.num_ranges; ++i) {
       ranges[i].first = to_ulong(argv[optind++]);
       ranges[i].last = to_ulong(argv[optind++]);
       range_swap_if_needed(&ranges[i]);
       total_num += range_count(&ranges[i]);
     }
-  } else {          // num_ranges == 0
-    num_ranges = 1; // default range
+  } else {            // num_ranges == 0
+    s.num_ranges = 1; // default range
     range_swap_if_needed(&ranges[0]);
     total_num = range_count(&ranges[0]);
   }
+  int last_range = s.num_ranges - 1;
 
   // printf("// Loading FreeType library...\n");
   // Init FreeType lib, load font
@@ -463,8 +529,9 @@ int main(int argc, char *argv[]) {
   // This improves clarity of fonts since this library does not
   // support rendering multiple levels of gray in a glyph.
   // See https://github.com/adafruit/Adafruit-GFX-Library/issues/103
-  FT_UInt interpreter_version = (render_mode == 1) ? TT_INTERPRETER_VERSION_40
-                                                   : TT_INTERPRETER_VERSION_35;
+  FT_UInt interpreter_version = (s.render_mode == 1)
+                                    ? TT_INTERPRETER_VERSION_40
+                                    : TT_INTERPRETER_VERSION_35;
   FT_Property_Set(library, "truetype", "interpreter-version",
                   &interpreter_version);
 
@@ -487,19 +554,8 @@ int main(int argc, char *argv[]) {
     return err;
   }
 
-  if (dump_codepoints) {
-    fprintf(stderr, "%s Stats:\n", fontName);
-    fprintf(stderr, "Num faces: %lu Num glyphs: %lu Maps: %d\n",
-            face->num_faces, face->num_glyphs, face->num_charmaps);
-    fprintf(stderr, "=============================================\n");
-    // Ensure an unicode characater map is loaded
-    FT_Select_Charmap(face, FT_ENCODING_UNICODE);
-
-    codepoint = FT_Get_First_Char(face, &gid);
-    while (gid != 0) {
-      fprintf(stderr, "Codepoint: 0x%lx, gid: %u\n", codepoint, gid);
-      codepoint = FT_Get_Next_Char(face, codepoint, &gid);
-    }
+  if (s.dump_codepoints) {
+    dump_font_info(face, fontName);
 
     FT_Done_FreeType(library);
 
@@ -537,9 +593,9 @@ int main(int argc, char *argv[]) {
   // Insert font size and 7/8/16 bit.  fontName was alloc'd w/extra
   // space to allow this, we're not sprintfing into Forbidden Zone.
   sprintf(fontFileName, "%s%dpt%db",
-          fontVariantName == NULL ? "" : fontVariantName, size,
-          (ranges[num_ranges - 1].last > 127)
-              ? (ranges[num_ranges - 1].last > 255) ? 16 : 8
+          fontVariantName == NULL ? "" : fontVariantName, s.size,
+          (ranges[last_range].last > 127)
+              ? (ranges[last_range].last > 255) ? 16 : 8
               : 7);
   // Space and punctuation chars in name replaced w/ underscores.
   for (i = 0; (c = fontName[i]); i++) {
@@ -548,14 +604,14 @@ int main(int argc, char *argv[]) {
   }
 
   printf("/* num ranges: %d */\nconst uint8_t %sBitmaps[] PROGMEM = {\n",
-         num_ranges, fontName);
+         s.num_ranges, fontName);
 
-  for (i = 0; i < num_ranges; ++i) {
+  for (i = 0; i < s.num_ranges; ++i) {
     // In case we want to se the range segemnts in the bitmap:
     printf("  /* range %d (0x%lx - 0x%lx): */  ", i, ranges[i].first,
            ranges[i].last);
-    err = extract_range(table, names, &face, size, ranges[i].first,
-                        ranges[i].last, &bitmapOffset, &render_mode);
+    err = extract_range(table, names, face, ranges[i].first, ranges[i].last,
+                        &bitmapOffset);
     printf("\n");
   }
 
@@ -569,7 +625,7 @@ int main(int argc, char *argv[]) {
   // Output glyph attributes table (one per character)
   printf("const GFXglyph %sGlyphs[] PROGMEM = {\n", fontName);
   j = 0;
-  for (r = 0; r < num_ranges; ++r) {
+  for (r = 0; r < s.num_ranges; ++r) {
     printf(
         "// bmpOff,   w,   h,xAdv, xOff, yOff      range %d (0x%lx - 0x%lx)\n",
         r, ranges[r].first, ranges[r].last);
@@ -578,7 +634,7 @@ int main(int argc, char *argv[]) {
       printf("  { %5d, %3d, %3d, %3d, %4d, %4d }", table[j].bitmapOffset,
              table[j].width, table[j].height, table[j].xAdvance,
              table[j].xOffset, table[j].yOffset);
-      if (codepoint < ranges[r].last || r < num_ranges - 1) {
+      if (codepoint < ranges[r].last || r < last_range) {
         printf(",   // 0x%02lX %s ", codepoint, names[j].name);
         if ((codepoint >= ' ') && (codepoint <= '~')) {
           printf(" '%c'", (int)codepoint);
@@ -587,7 +643,7 @@ int main(int argc, char *argv[]) {
       }
       j++;
     }
-    if (r != num_ranges - 1) {
+    if (r != last_range) {
       for (codepoint = ranges[r].last + 1; codepoint < ranges[r + 1].first;
            ++codepoint) {
         printf("  { %5d, %3d, %3d, %3d, %4d, %4d },   // 0x%02lX (skip)\n", 0,
@@ -597,10 +653,9 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  printf(" }; // 0x%02lX %s ", ranges[num_ranges - 1].last, names[j - 1].name);
-  if ((ranges[num_ranges - 1].last >= ' ') &&
-      (ranges[num_ranges - 1].last <= '~')) {
-    printf(" '%c'", (int)ranges[num_ranges - 1].last);
+  printf(" }; // 0x%02lX %s ", ranges[last_range].last, names[j - 1].name);
+  if ((ranges[last_range].last >= ' ') && (ranges[last_range].last <= '~')) {
+    printf(" '%c'", (int)ranges[last_range].last);
   }
   printf(" (#%d)\n\n", j - 1);
 
@@ -610,8 +665,8 @@ int main(int argc, char *argv[]) {
   printf("  (GFXglyph *)%sGlyphs,\n", fontName);
 
   // consider height override
-  if (height != 0) {
-    face->size->metrics.height = height;
+  if (s.height != 0) {
+    face->size->metrics.height = s.height;
   } else if (face->size->metrics.height == 0) {
     face->size->metrics.height = table[0].height;
   } else {
@@ -619,8 +674,7 @@ int main(int argc, char *argv[]) {
   }
 
   printf("  0x%02lX, // first\n  0x%02lX, // last\n  %ld   //height\n };\n\n",
-         ranges[0].first + codepoint_offset,
-         ranges[num_ranges - 1].last + codepoint_offset,
+         ranges[0].first + s.offset, ranges[last_range].last + s.offset,
          face->size->metrics.height);
 
   printf("// Approx. %d bytes\n", bitmapOffset + (total_num + skipped) * 7 + 7);
