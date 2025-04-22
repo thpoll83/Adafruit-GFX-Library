@@ -4,3 +4,6 @@ fontconvert/fontconvert
 Doxyfile*
 doxygen_sqlite3.db
 html
+fontconvert/.idea
+fontconvert/cmake-build-debug
+fontconvert/cmake-build-release
