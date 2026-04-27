@@ -13,6 +13,7 @@ REQUIRES FREETYPE LIBRARY.  www.freetype.org
 See notes at end for glyph nomenclature & other tidbits.
 */
 #include <ctype.h>
+#include <string.h>
 #include <ft2build.h>
 #include <getopt.h>
 #include <pwd.h>
@@ -40,6 +41,7 @@ typedef struct settings {
 	int offset;
 	int render_mode;
 	int dump_codepoints;
+	char *sequence;
 } FontSettings;
 
 static FontSettings s = {
@@ -49,6 +51,7 @@ static FontSettings s = {
 	.offset = 0,
 	.render_mode = 0,
 	.dump_codepoints = 0,
+	.sequence = NULL,
 };
 
 extern char* optarg;
@@ -116,49 +119,87 @@ int range_count(const ch_range* range) {
 	return range->last - range->first + 1;
 }
 
-// void floyd_steinberg_dithering(GFXglyphRGB *source, GFXglyph* result)
-// {
-//     for(int y = 0; y < source->height; y++)
-//     {
-//         for(int x = 0; x < source->width; x++)
-//         {
-//             if(x - 1 >= 0 && y + 1 < source->height && x + 1 < source->width)
-//             {
-//                 unsigned char oldPixel[3];
-//                 unsigned char newPixel = 0xFF;
-//                 unsigned char others[4][3];
-//                 unsigned char otherValues[4];
-//                 char error = 0x00;
+// Convert a BGRA bitmap (straight alpha, as returned by FreeType for CBDT/color fonts)
+// to a float grayscale buffer (0.0=black, 1.0=white) composited over a white background.
+static float *bgra_to_gray_buf(const uint8_t *buf, int pitch, int width, int rows) {
+	float *gray = (float *)malloc(width * rows * sizeof(float));
+	if (!gray) return NULL;
+	for (int y = 0; y < rows; y++) {
+		for (int x = 0; x < width; x++) {
+			const uint8_t *p = buf + y * pitch + x * 4;
+			float b = p[0] / 255.0f;
+			float g = p[1] / 255.0f;
+			float r = p[2] / 255.0f;
+			float a = p[3] / 255.0f;
+			// Composite over white background (straight alpha)
+			float ro = r * a + (1.0f - a);
+			float go = g * a + (1.0f - a);
+			float bo = b * a + (1.0f - a);
+			// sRGB luminance weights
+			gray[y * width + x] = 0.2126f * ro + 0.7152f * go + 0.0722f * bo;
+		}
+	}
+	return gray;
+}
 
-//                 source->getPixel(x, y, &oldPixel[0]);
-//                 source->getPixel(x+1, y, &others[0][0]);
-//                 source->getPixel(x-1, y+1, &others[1][0]);
-//                 source->getPixel(x, y+1, &others[2][0]);
-//                 source->getPixel(x+1, y+1, &others[3][0]);
+// Floyd-Steinberg dithering: quantise a float grayscale buffer to 1-bit and emit
+// each bit via enbit(). Error is diffused in-place using the standard FS kernel:
+//   forward:        7/16
+//   below-left:  3/16
+//   below:       5/16
+//   below-right: 1/16
+static void floyd_steinberg_to_bits(float *gray, int width, int rows) {
+	for (int y = 0; y < rows; y++) {
+		for (int x = 0; x < width; x++) {
+			float old = gray[y * width + x];
+			if (old < 0.0f) old = 0.0f;
+			if (old > 1.0f) old = 1.0f;
+			float newval = (old >= 0.5f) ? 1.0f : 0.0f;
+			enbit((uint8_t)(newval >= 0.5f ? 1 : 0));
+			float err = old - newval;
+			if (x + 1 < width)
+				gray[y * width + x + 1]           += err * (7.0f / 16.0f);
+			if (y + 1 < rows) {
+				if (x > 0)
+					gray[(y + 1) * width + x - 1] += err * (3.0f / 16.0f);
+				gray[(y + 1) * width + x]          += err * (5.0f / 16.0f);
+				if (x + 1 < width)
+					gray[(y + 1) * width + x + 1]  += err * (1.0f / 16.0f);
+			}
+		}
+	}
+}
 
-//                 if(oldPixel[0] < 0x80)
-//                     newPixel = 0x00;
+// Shared pixel-to-bits renderer: dispatches on pixel_mode so both range and
+// sequence paths use identical quantisation logic.
+static void render_bitmap_to_bits(FT_Bitmap *bitmap) {
+	int x, y, byte, rnd;
+	uint8_t bit;
+	if (bitmap->pixel_mode == FT_PIXEL_MODE_BGRA) {
+		float *gray_buf = bgra_to_gray_buf(bitmap->buffer, bitmap->pitch,
+		                                   bitmap->width, bitmap->rows);
+		if (gray_buf) {
+			floyd_steinberg_to_bits(gray_buf, bitmap->width, bitmap->rows);
+			free(gray_buf);
+		}
+	} else if (s.render_mode == 1) {
+		for (y = 0; y < (int)bitmap->rows; y++)
+			for (x = 0; x < (int)bitmap->width; x++) {
+				byte = bitmap->buffer[y * bitmap->pitch + x];
+				if (byte == 0) { enbit(0); }
+				else { rnd = rand() % 256; enbit((rnd <= byte) ? 1 : 0); }
+			}
+	} else {
+		for (y = 0; y < (int)bitmap->rows; y++)
+			for (x = 0; x < (int)bitmap->width; x++) {
+				byte = x / 8;
+				bit  = 0x80 >> (x & 7);
+				enbit(bitmap->buffer[y * bitmap->pitch + byte] & bit);
+			}
+	}
+}
 
-//                 result->setPixel(x, y, newPixel, newPixel, newPixel);
-//                 error = oldPixel[0] - newPixel;
-
-//                 for(int i = 0; i < sizeof(ditheringFilter) / sizeof(unsigned
-//                 char); i++)
-//                 {
-//                     otherValues[i] = others[i][0] + error *
-//                     ditheringFilter[i] * 0.0625;
-//                 }
-
-//                 result->setPixel(x+1, y,   otherValues[0], otherValues[0],
-//                 otherValues[0]); result->setPixel(x-1, y+1, otherValues[1],
-//                 otherValues[1], otherValues[1]); result->setPixel(x  , y+1,
-//                 otherValues[2], otherValues[2], otherValues[2]);
-//                 result->setPixel(x+1, y+1, otherValues[3], otherValues[3],
-//                 otherValues[3]);
-//             }
-//         }
-
-int extract_range(GFXglyph* table, glyph_name* names, FT_Face face,
+int extract_range_ft(GFXglyph* table, glyph_name* names, FT_Face face,
 									FT_ULong first, FT_ULong last, int* bitmapOffset) {
 	FT_ULong codepoint;
 	int err;
@@ -239,25 +280,7 @@ int extract_range(GFXglyph* table, glyph_name* names, FT_Face face,
 			continue;
 		}
 
-		int x, y, byte, rnd;
-		uint8_t bit;
-		for (y = 0; y < bitmap->rows; y++) {
-			for (x = 0; x < bitmap->width; x++) {
-				if (s.render_mode == 1) {
-					byte = bitmap->buffer[y * bitmap->pitch + x];
-					if (byte == 0) {
-						enbit(0); // avoid snowflakes
-					} else {
-						rnd = rand() % 256;
-						enbit((rnd <= byte) ? 1 : 0);
-					}
-				} else {
-					byte = x / 8;
-					bit = 0x80 >> (x & 7);
-					enbit(bitmap->buffer[y * bitmap->pitch + byte] & bit);
-				}
-			}
-		}
+		render_bitmap_to_bits(bitmap);
 
 		// Pad end of char bitmap to next byte boundary if needed
 		int n = (bitmap->width * bitmap->rows) & 7;
@@ -272,6 +295,103 @@ int extract_range(GFXglyph* table, glyph_name* names, FT_Face face,
 	}
 
 	return 0;
+}
+
+// Shape a space/comma-separated string of hex Unicode codepoints with HarfBuzz,
+// render each resulting glyph, populate table[] and names[], and emit bitmap
+// data via enbit().  Returns the number of GFXglyph entries written, or -1.
+int shape_and_render_sequence(GFXglyph *table, glyph_name *names, FT_Face face,
+                               const char *seq_str, int *bitmapOffset) {
+	uint32_t codepoints[64];
+	int n_codepoints = 0;
+
+	char *buf = strdup(seq_str);
+	char *tok = strtok(buf, " \t,");
+	while (tok && n_codepoints < 64) {
+		codepoints[n_codepoints++] = (uint32_t)strtoul(tok, NULL, 16);
+		tok = strtok(NULL, " \t,");
+	}
+	free(buf);
+
+	if (n_codepoints == 0) {
+		fprintf(stderr, "Error: no codepoints found in sequence '%s'\n", seq_str);
+		return -1;
+	}
+
+	FT_Set_Char_Size(face, s.size << 6, 0, DPI, 0);
+
+	hb_font_t   *hb_font = hb_ft_font_create(face, NULL);
+	hb_buffer_t *hb_buf  = hb_buffer_create();
+	hb_buffer_set_content_type(hb_buf, HB_BUFFER_CONTENT_TYPE_UNICODE);
+
+	for (int i = 0; i < n_codepoints; i++)
+		hb_buffer_add(hb_buf, codepoints[i], i);
+	hb_buffer_set_direction(hb_buf, HB_DIRECTION_LTR);
+	hb_buffer_guess_segment_properties(hb_buf);
+	hb_shape(hb_font, hb_buf, NULL, 0);
+
+	unsigned int glyph_count;
+	hb_glyph_info_t *glyph_info = hb_buffer_get_glyph_infos(hb_buf, &glyph_count);
+	fprintf(stderr, "HarfBuzz: %d codepoint(s) → %u glyph(s)\n",
+	        n_codepoints, glyph_count);
+
+	int written = 0;
+	int err;
+	for (unsigned int i = 0; i < glyph_count; i++) {
+		uint32_t gid = glyph_info[i].codepoint; // glyph index after shaping
+
+		if ((err = FT_Load_Glyph(face, gid,
+		                          s.render_mode == 1
+		                            ? FT_LOAD_TARGET_NORMAL | FT_LOAD_COLOR
+		                            : FT_LOAD_TARGET_MONO))) {
+			fprintf(stderr, "Error %d loading shaped glyph %u (seq[%u])\n", err, gid, i);
+			continue;
+		}
+		if ((err = FT_Render_Glyph(face->glyph,
+		                            s.render_mode == 1
+		                              ? FT_RENDER_MODE_NORMAL
+		                              : FT_RENDER_MODE_MONO))) {
+			fprintf(stderr, "Error %d rendering shaped glyph %u\n", err, gid);
+			continue;
+		}
+
+		FT_Glyph ft_glyph;
+		if ((err = FT_Get_Glyph(face->glyph, &ft_glyph))) {
+			fprintf(stderr, "Error %d getting shaped glyph %u\n", err, gid);
+			continue;
+		}
+
+		FT_Bitmap        *bitmap = &face->glyph->bitmap;
+		FT_BitmapGlyphRec *rec   = (FT_BitmapGlyphRec *)ft_glyph;
+
+		table[written].bitmapOffset = *bitmapOffset;
+		table[written].width        = bitmap->width;
+		table[written].height       = bitmap->rows;
+		table[written].xAdvance     = face->glyph->advance.x >> 6;
+		table[written].xOffset      = rec->left;
+		table[written].yOffset      = 1 - rec->top;
+		snprintf(names[written].name, sizeof(names[written].name), "gid_%u", gid);
+
+		if (bitmap->rows == 0 || bitmap->width == 0) {
+			fprintf(stderr, "Info: no pixel data for shaped glyph %u\n", gid);
+			FT_Done_Glyph(ft_glyph);
+			written++; // keep slot so indices stay consistent
+			continue;
+		}
+
+		render_bitmap_to_bits(bitmap);
+
+		int n = (bitmap->width * bitmap->rows) & 7;
+		if (n) { n = 8 - n; while (n--) enbit(0); }
+		*bitmapOffset += (bitmap->width * bitmap->rows + 7) / 8;
+
+		FT_Done_Glyph(ft_glyph);
+		written++;
+	}
+
+	hb_buffer_destroy(hb_buf);
+	hb_font_destroy(hb_font);
+	return written;
 }
 
 void print_usage(char* argv[]) {
@@ -299,6 +419,9 @@ void print_usage(char* argv[]) {
 	fprintf(stderr,
 					"    -a provide an optional unicode character variant selector"
 					"(run with -d to view available variant selectors))\n");
+	fprintf(stderr, "    -S space/comma-separated hex codepoint sequence shaped by HarfBuzz\n"
+					"       e.g. -S \"1F1E9 1F1EA\"  →  German flag  (ignores RANGES)\n"
+					"            -S \"1F3F3 FE0F 200D 1F308\"  →  rainbow flag (ZWJ)\n");
 	fprintf(stderr, "    RANGES are pairs of values or a single last value (with "
 					"start=default): last|(first last)+\n");
 	fprintf(stderr, "      if there is no range, the default from ' '(32) to "
@@ -333,7 +456,7 @@ int parse_args(int argc, char* argv[], char** fontFileName,
 		return -1;
 	}
 
-	while ((opt = getopt(argc, argv, "dgs:f:v:r:o:n:")) != -1) {
+	while ((opt = getopt(argc, argv, "dgs:f:v:r:o:n:S:")) != -1) {
 		switch (opt) {
 		case 's':
 			if (!optarg) {
@@ -395,6 +518,14 @@ int parse_args(int argc, char* argv[], char** fontFileName,
 
 		case 'd':
 			s.dump_codepoints = 1;
+			break;
+
+		case 'S':
+			if (!optarg) {
+				printf("Missing value for argument S!\n");
+				return -1;
+			}
+			s.sequence = strdup(optarg);
 			break;
 
 		case '?':
@@ -562,9 +693,11 @@ int main(int argc, char* argv[]) {
 	}
 
 	// Allocate space for font name and glyph table
+	// Sequence mode may emit up to 64 shaped glyphs regardless of codepoint ranges
+	int alloc_num = (s.sequence && total_num < 64) ? 64 : total_num;
 	if ((!(fontName = malloc(strlen(fontFileName) + 22))) ||
-		(!(table = (GFXglyph*)malloc(total_num * sizeof(GFXglyph)))) ||
-		(!(names = (glyph_name*)malloc(total_num * sizeof(glyph_name))))) {
+		(!(table = (GFXglyph*)malloc(alloc_num * sizeof(GFXglyph)))) ||
+		(!(names = (glyph_name*)malloc(alloc_num * sizeof(glyph_name))))) {
 		fprintf(stderr, "Malloc error\n");
 		return 1;
 	}
@@ -604,83 +737,106 @@ int main(int argc, char* argv[]) {
 			fontName[i] = '_';
 	}
 
-	printf("/* num ranges: %d */\nconst uint8_t %sBitmaps[] PROGMEM = {\n",
-				 s.num_ranges, fontName);
+	if (s.sequence) {
+		// --- SEQUENCE MODE: HarfBuzz shapes the codepoints, output single block ---
+		printf("/* sequence: %s */\nconst uint8_t %sBitmaps[] PROGMEM = {\n"
+		       "  /* shaped sequence */  ", s.sequence, fontName);
+		int seq_count = shape_and_render_sequence(table, names, face,
+		                                          s.sequence, &bitmapOffset);
+		printf("\n };\n\n");
 
-	for (i = 0; i < s.num_ranges; ++i) {
-		// In case we want to se the range segemnts in the bitmap:
-		printf("  /* range %d (0x%lx - 0x%lx): */  ", i, ranges[i].first,
-					 ranges[i].last);
-		err = extract_range(table, names, face, ranges[i].first, ranges[i].last,
-												&bitmapOffset);
-		printf("\n");
-	}
-
-	if (err != 0) {
-		FT_Done_FreeType(library);
-		return err;
-	}
-
-	printf(" };\n\n"); // End bitmap array
-
-	// Output glyph attributes table (one per character)
-	printf("const GFXglyph %sGlyphs[] PROGMEM = {\n", fontName);
-	j = 0;
-	for (r = 0; r < s.num_ranges; ++r) {
-		printf(
-			"// bmpOff,   w,   h,xAdv, xOff, yOff      range %d (0x%lx - 0x%lx)\n",
-			r, ranges[r].first, ranges[r].last);
-		for (codepoint = ranges[r].first; codepoint <= ranges[r].last;
-				 ++codepoint) {
-			printf("  { %5d, %3d, %3d, %3d, %4d, %4d }", table[j].bitmapOffset,
-						 table[j].width, table[j].height, table[j].xAdvance,
-						 table[j].xOffset, table[j].yOffset);
-			if (codepoint < ranges[r].last || r < last_range) {
-				printf(",   // 0x%02lX %s ", codepoint, names[j].name);
-				if ((codepoint >= ' ') && (codepoint <= '~')) {
-					printf(" '%c'", (int)codepoint);
-				}
-				printf(" (#%d)\n", j);
-			}
-			j++;
+		if (seq_count <= 0) {
+			FT_Done_FreeType(library);
+			return 1;
 		}
-		if (r != last_range) {
-			for (codepoint = ranges[r].last + 1; codepoint < ranges[r + 1].first;
-					 ++codepoint) {
-				printf("  { %5d, %3d, %3d, %3d, %4d, %4d },   // 0x%02lX (skip)\n", 0,
-							 0, 0, 0, 0, 0, codepoint);
-				skipped++;
-			}
+
+		printf("const GFXglyph %sGlyphs[] PROGMEM = {\n", fontName);
+		printf("// bmpOff,   w,   h,xAdv, xOff, yOff      sequence\n");
+		for (i = 0; i < seq_count; i++) {
+			printf("  { %5d, %3d, %3d, %3d, %4d, %4d }",
+			       table[i].bitmapOffset, table[i].width, table[i].height,
+			       table[i].xAdvance, table[i].xOffset, table[i].yOffset);
+			if (i < seq_count - 1)
+				printf(",   // seq[%d] %s\n", i, names[i].name);
 		}
-	}
+		printf(" }; // seq[%d] %s\n\n", seq_count - 1, names[seq_count - 1].name);
 
-	printf(" }; // 0x%02lX %s ", ranges[last_range].last, names[j - 1].name);
-	if ((ranges[last_range].last >= ' ') && (ranges[last_range].last <= '~')) {
-		printf(" '%c'", (int)ranges[last_range].last);
-	}
-	printf(" (#%d)\n\n", j - 1);
+		printf("const GFXfont %s PROGMEM = {\n", fontName);
+		printf("  (uint8_t  *)%sBitmaps,\n", fontName);
+		printf("  (GFXglyph *)%sGlyphs,\n", fontName);
+		if (s.height != 0)
+			face->size->metrics.height = s.height;
+		else if (face->size->metrics.height == 0)
+			face->size->metrics.height = table[0].height;
+		else
+			face->size->metrics.height = (uint8_t)(face->size->metrics.height >> 6);
+		printf("  0x%02X, // first\n  0x%02X, // last\n  %ld   //height\n };\n\n",
+		       0, seq_count - 1, face->size->metrics.height);
+		printf("// Approx. %d bytes\n", bitmapOffset + seq_count * 7 + 7);
 
-	// Output font structure
-	printf("const GFXfont %s PROGMEM = {\n", fontName);
-	printf("  (uint8_t  *)%sBitmaps,\n", fontName);
-	printf("  (GFXglyph *)%sGlyphs,\n", fontName);
-
-	// consider height override
-	if (s.height != 0) {
-		face->size->metrics.height = s.height;
-	} else if (face->size->metrics.height == 0) {
-		face->size->metrics.height = table[0].height;
 	} else {
-		face->size->metrics.height = (uint8_t)(face->size->metrics.height >> 6);
+		// --- RANGE MODE: original codepoint-range extraction ---
+		printf("/* num ranges: %d */\nconst uint8_t %sBitmaps[] PROGMEM = {\n",
+		       s.num_ranges, fontName);
+		for (i = 0; i < s.num_ranges; ++i) {
+			printf("  /* range %d (0x%lx - 0x%lx): */  ", i, ranges[i].first,
+			       ranges[i].last);
+			err = extract_range_ft(table, names, face, ranges[i].first,
+			                       ranges[i].last, &bitmapOffset);
+			printf("\n");
+		}
+		if (err != 0) {
+			FT_Done_FreeType(library);
+			return err;
+		}
+		printf(" };\n\n");
+
+		printf("const GFXglyph %sGlyphs[] PROGMEM = {\n", fontName);
+		j = 0;
+		for (r = 0; r < s.num_ranges; ++r) {
+			printf("// bmpOff,   w,   h,xAdv, xOff, yOff      range %d (0x%lx - 0x%lx)\n",
+			       r, ranges[r].first, ranges[r].last);
+			for (codepoint = ranges[r].first; codepoint <= ranges[r].last; ++codepoint) {
+				printf("  { %5d, %3d, %3d, %3d, %4d, %4d }", table[j].bitmapOffset,
+				       table[j].width, table[j].height, table[j].xAdvance,
+				       table[j].xOffset, table[j].yOffset);
+				if (codepoint < ranges[r].last || r < last_range) {
+					printf(",   // 0x%02lX %s ", codepoint, names[j].name);
+					if ((codepoint >= ' ') && (codepoint <= '~'))
+						printf(" '%c'", (int)codepoint);
+					printf(" (#%d)\n", j);
+				}
+				j++;
+			}
+			if (r != last_range) {
+				for (codepoint = ranges[r].last + 1;
+				     codepoint < ranges[r + 1].first; ++codepoint) {
+					printf("  { %5d, %3d, %3d, %3d, %4d, %4d },   // 0x%02lX (skip)\n",
+					       0, 0, 0, 0, 0, 0, codepoint);
+					skipped++;
+				}
+			}
+		}
+		printf(" }; // 0x%02lX %s ", ranges[last_range].last, names[j - 1].name);
+		if ((ranges[last_range].last >= ' ') && (ranges[last_range].last <= '~'))
+			printf(" '%c'", (int)ranges[last_range].last);
+		printf(" (#%d)\n\n", j - 1);
+
+		printf("const GFXfont %s PROGMEM = {\n", fontName);
+		printf("  (uint8_t  *)%sBitmaps,\n", fontName);
+		printf("  (GFXglyph *)%sGlyphs,\n", fontName);
+		if (s.height != 0)
+			face->size->metrics.height = s.height;
+		else if (face->size->metrics.height == 0)
+			face->size->metrics.height = table[0].height;
+		else
+			face->size->metrics.height = (uint8_t)(face->size->metrics.height >> 6);
+		printf("  0x%02lX, // first\n  0x%02lX, // last\n  %ld   //height\n };\n\n",
+		       ranges[0].first + s.offset, ranges[last_range].last + s.offset,
+		       face->size->metrics.height);
+		printf("// Approx. %d bytes\n", bitmapOffset + (total_num + skipped) * 7 + 7);
 	}
-
-	printf("  0x%02lX, // first\n  0x%02lX, // last\n  %ld   //height\n };\n\n",
-				 ranges[0].first + s.offset, ranges[last_range].last + s.offset,
-				 face->size->metrics.height);
-
-	printf("// Approx. %d bytes\n", bitmapOffset + (total_num + skipped) * 7 + 7);
-	// Size estimate is based on AVR struct and pointer sizes;
-	// actual size may vary.
+	// Size estimate is based on AVR struct and pointer sizes; actual size may vary.
 
 	FT_Done_FreeType(library);
 
