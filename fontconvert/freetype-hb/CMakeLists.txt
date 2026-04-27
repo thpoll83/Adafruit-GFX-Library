@@ -30,6 +30,7 @@ list(APPEND freetype_byproduct
 ExternalProject_Add(
   freetype_without_harfbuzz
   URL https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.gz
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
   CMAKE_ARGS
   -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
   -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
@@ -55,6 +56,7 @@ if (WIN32)
     harfbuzz
     DEPENDS freetype_without_harfbuzz
     URL https://www.freedesktop.org/software/harfbuzz/release/harfbuzz-2.6.7.tar.xz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     CMAKE_ARGS
     -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
     -DCMAKE_PREFIX_PATH=${freetype_without_harfbuzz_dir}
@@ -68,6 +70,7 @@ else()
     harfbuzz
     DEPENDS freetype_without_harfbuzz
     URL https://www.freedesktop.org/software/harfbuzz/release/harfbuzz-2.6.7.tar.xz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     CONFIGURE_COMMAND FREETYPE_CFLAGS="-I${freetype_without_harfbuzz_dir}/include/freetype2/" FREETYPE_LIBS="${freetype_without_harfbuzz_dir}/lib/${freetype_lib_name}" <SOURCE_DIR>/configure --prefix=<INSTALL_DIR> --enable-static=yes --enable-shared=no
     BUILD_COMMAND make
     INSTALL_COMMAND make install
@@ -86,6 +89,7 @@ ExternalProject_Add(
   freetype_with_harfbuzz
   DEPENDS harfbuzz
   URL https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.gz
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
   CMAKE_ARGS
   -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
   -DCMAKE_PREFIX_PATH=${harfbuzz_dir}
@@ -108,6 +112,5 @@ list(APPEND deps freetype_with_harfbuzz)
 
 add_executable(test test.cpp)
 add_dependencies(test ${deps})
-install(TARGETS test DESTINATION bin)
 
 # -------------------------------------------------------

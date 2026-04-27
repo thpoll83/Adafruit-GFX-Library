@@ -66,8 +66,12 @@ def parse_h_file(path: str) -> dict:
     if not m:
         raise ValueError(f"No *Bitmaps[] array found in {path}")
     font_name = m.group(1)
+    # Strip C block comments before extracting hex bytes — the range annotations
+    # embedded as comments (e.g. "/* range 0 (0x20 - 0x7e): */") contain hex
+    # literals that would otherwise be mistakenly parsed as bitmap data.
+    bitmap_content = re.sub(r'/\*.*?\*/', '', m.group(2), flags=re.DOTALL)
     bitmap_bytes = bytes(
-        int(x, 16) for x in re.findall(r'0x([0-9A-Fa-f]{2})', m.group(2))
+        int(x, 16) for x in re.findall(r'0x([0-9A-Fa-f]{2})', bitmap_content)
     )
 
     # Glyph array  { bmpOff, w, h, xAdv, xOff, yOff }
@@ -237,10 +241,16 @@ def run_assertions(font: dict, min_nonblank: int = 0) -> list:
 # CLI
 # ---------------------------------------------------------------------------
 
+_DEFAULT_SCAN_DIR = (
+    Path(__file__).parent.parent.parent.parent /
+    "qmk_firmware/keyboards/handwired/polykybd/base/fonts/generated"
+)
+
+
 def build_argparser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument('h_file', nargs='?', help='Path to generated .h file')
+    p.add_argument('h_file', nargs='?', help='Path to a single generated .h file')
     p.add_argument('--out-dir', default='font_test_output',
                    help='Directory for PNG output (default: font_test_output/)')
     p.add_argument('--scale', type=int, default=6,
@@ -253,6 +263,12 @@ def build_argparser() -> argparse.ArgumentParser:
                    help='Assert at least N glyphs have non-empty bitmaps')
     p.add_argument('--no-individual', action='store_true',
                    help='Skip saving individual per-glyph PNGs')
+
+    scan = p.add_argument_group('directory scan mode')
+    scan.add_argument('--scan-dir', nargs='?', const=str(_DEFAULT_SCAN_DIR),
+                      metavar='DIR',
+                      help='Scan a directory for *.h files and render all of them. '
+                           f'Defaults to: {_DEFAULT_SCAN_DIR}')
 
     gen = p.add_argument_group('generate header on-the-fly')
     gen.add_argument('--generate-from', metavar='FONT.TTF',
@@ -302,26 +318,21 @@ def generate_header(args) -> str:
     return tmp.name
 
 
-def main() -> int:
-    args = build_argparser().parse_args()
-
-    if args.h_file:
-        h_path = args.h_file
-    elif args.generate_from:
-        h_path = generate_header(args)
-    else:
-        build_argparser().print_help()
-        return 1
-
+def process_font_file(h_path: str, args) -> bool:
+    """Parse one .h file, print a summary, write PNGs.  Returns True if any FAIL fired."""
     print(f"\nParsing: {h_path}")
-    font = parse_h_file(h_path)
+    try:
+        font = parse_h_file(h_path)
+    except Exception as exc:
+        print(f"  ERROR: {exc}")
+        return False
+
     print(f"  Font name : {font['name']}")
     print(f"  Codepoints: 0x{font['first']:X} – 0x{font['last']:X}  "
           f"({len(font['glyphs'])} glyphs)")
     print(f"  Bitmap    : {len(font['bitmap'])} bytes")
     print(f"  yAdvance  : {font['yAdvance']} px")
 
-    print("\nAssertions:")
     issues = run_assertions(font, min_nonblank=args.check_nonblank)
     if issues:
         for issue in issues:
@@ -335,7 +346,7 @@ def main() -> int:
 
     sheet_path = str(out_dir / f"{font['name']}_sheet.png")
     w, h = make_sheet_png(font, sheet_path, scale=args.scale, cols=args.cols)
-    print(f"\nContact sheet: {sheet_path}  ({w}×{h} px)")
+    print(f"  Contact sheet: {sheet_path}  ({w}×{h} px)")
 
     if not args.no_individual:
         glyph_dir = out_dir / font['name']
@@ -345,9 +356,41 @@ def main() -> int:
             save_glyph_png(g, font['bitmap'],
                            str(glyph_dir / f"U+{cp:04X}.png"),
                            scale=args.scale)
-        print(f"Individual glyphs: {glyph_dir}/  ({len(font['glyphs'])} files)")
+        print(f"  Individual glyphs: {glyph_dir}/  ({len(font['glyphs'])} files)")
 
-    has_fails = any(issue.startswith('FAIL') for issue in issues)
+    return any(issue.startswith('FAIL') for issue in issues)
+
+
+def main() -> int:
+    args = build_argparser().parse_args()
+
+    if args.scan_dir:
+        scan_path = Path(args.scan_dir)
+        if not scan_path.is_dir():
+            print(f"Error: scan directory not found: {scan_path}", file=sys.stderr)
+            return 1
+        headers = sorted(scan_path.glob("*.h"))
+        if not headers:
+            print(f"No .h files found in {scan_path}", file=sys.stderr)
+            return 1
+        print(f"Scanning {scan_path}  ({len(headers)} headers found)")
+        any_fail = False
+        for h in headers:
+            any_fail |= process_font_file(str(h), args)
+        if args.strict and any_fail:
+            print("\nExit 1 (--strict, FAIL assertions present)")
+            return 1
+        return 0
+
+    if args.h_file:
+        h_path = args.h_file
+    elif args.generate_from:
+        h_path = generate_header(args)
+    else:
+        build_argparser().print_help()
+        return 1
+
+    has_fails = process_font_file(h_path, args)
     if args.strict and has_fails:
         print("\nExit 1 (--strict, FAIL assertions present)")
         return 1

@@ -10,6 +10,44 @@ Dependencies: pypng only — no PIL/Pillow required.
 
 Each test class covers one scenario.  Tests that require the NotoColorEmoji
 font (not bundled) are skipped automatically when the font file is absent.
+
+-------------------------------------------------------------------------------
+Visual inspection examples (visualize_font.py)
+-------------------------------------------------------------------------------
+These commands parse checked-in .h headers and write PNG contact sheets to
+font_test_output/.  All verified passing as of 2026-04-27.
+
+  GENERATED=../../../../qmk_firmware/keyboards/handwired/polykybd/base/fonts/generated
+
+  # Latin base (0x20–0x7E, 95 glyphs, 2611 bytes)
+  python3 visualize_font.py $GENERATED/0NotoSans_Regular_Base_14pt.h --out-dir font_test_output/
+
+  # Greek (0x384–0x3C9, 70 glyphs, 2005 bytes)
+  python3 visualize_font.py $GENERATED/NotoSans_Regular_Greek_14pt.h --out-dir font_test_output/
+
+  # Cyrillic (0x401–0x4E9, 233 glyphs, 8325 bytes)
+  python3 visualize_font.py $GENERATED/NotoSans_Regular_Cyrillic_16pt.h --out-dir font_test_output/
+
+  # Hebrew (0x5D0–0x5F4, 37 glyphs, 898 bytes)
+  python3 visualize_font.py $GENERATED/NotoSans_Medium_Hebrew_16pt.h --out-dir font_test_output/
+
+  # Arabic — WARNs expected: diacritics (0x64B–0x65F) have xAdvance=0 by design
+  python3 visualize_font.py $GENERATED/NotoSansAR_Regular_Isolated_16pt.h --out-dir font_test_output/
+
+  # Hiragana (0x3041–0x309F, 95 glyphs) — two combining marks have xAdvance=0 (correct)
+  python3 visualize_font.py $GENERATED/NotoSansJP_Regular_Hiragana_15pt.h --out-dir font_test_output/
+
+  # Emoji: brightness (8 glyphs, offset-mapped to 0xE311)
+  python3 visualize_font.py $GENERATED/5NotoEmoji_Medium_Brightness_16pt.h --out-dir font_test_output/
+
+  # Emoji: face set (0xF600–0xF64F, 80 glyphs, 15890 bytes)
+  python3 visualize_font.py $GENERATED/6NotoEmoji_Medium_Emoji0_20pt.h --out-dir font_test_output/
+
+  # Chess symbols (0x2654–0x265F, 12 glyphs)
+  python3 visualize_font.py $GENERATED/7NotoSansSymbols2_Regular_Chess_20pt.h --out-dir font_test_output/
+
+  # Arrows (0x2B6F–0x2BA0, 50 glyphs — sparse range, most are blanks by design)
+  python3 visualize_font.py $GENERATED/3NotoSansSymbols2_Regular_Arrows_20pt.h --out-dir font_test_output/
 """
 
 import subprocess
