@@ -95,11 +95,8 @@ ExternalProject_Add(
   -DCMAKE_PREFIX_PATH=${harfbuzz_dir}
   -DCMAKE_MODULE_PATH=${harfbuzz_dir}
   -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-#  -DWITH_BZip2=Off
-#  -DWITH_ZLIB=Off
-#  -DWITH_PNG=Off
-  -DFT_DISABLE_ZLIB=TRUE
   -DFT_REQUIRE_HARFBUZZ=TRUE
+  -DFT_REQUIRE_PNG=TRUE
   BUILD_BYPRODUCTS ${freetype_byproduct}
   )
 

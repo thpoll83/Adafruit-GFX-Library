@@ -68,10 +68,29 @@ fontconvert -f fonts/noto-sans/NotoSans-Regular.ttf -s14 -v _Base_ 0x20 0x7e \
 pip install pypng pytest
 cd tests
 pytest -v
-# 18 tests pass; color-emoji tests auto-skip until NotoColorEmoji font is present
 ```
 
-Visual inspection — renders all glyphs to a PNG contact sheet:
+Test classes:
+
+| Class | What it covers |
+|-------|---------------|
+| `TestFixtureParse` | Parses the checked-in NotoSans Base header and verifies structure |
+| `TestMonoRendering` | Renders A–Z from DejaVuSans in monochrome via fontconvert |
+| `TestGrayscaleRendering` | Same range with Floyd-Steinberg grayscale (`-g`) |
+| `TestSequenceMode` | HarfBuzz `-S` sequence mode with 3-glyph ABC sequence |
+| `TestColorEmoji` | Smileys 0x1F600–0x1F60F from NotoColorEmoji (BGRA→1-bit pipeline) |
+| `TestColorEmojiFlags` | All 258 ISO 3166-1 country flags from NotoColorEmoji |
+| `TestAllFirmwareFonts` | Every `*.h` GFXfont under `base/fonts/` — parses, validates, **writes a contact-sheet PNG** to `tests/font_test_output/` |
+
+Run just the firmware-font sweep with PNG output:
+
+```bash
+cd tests
+pytest -v -k TestAllFirmwareFonts
+# → writes one PNG per font to tests/font_test_output/
+```
+
+Visual inspection of a single header:
 
 ```bash
 python tests/visualize_font.py path/to/Font.h --out-dir out/
@@ -80,4 +99,7 @@ python tests/visualize_font.py path/to/Font.h --out-dir out/
 python tests/visualize_font.py \
     --generate-from /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf \
     --fontconvert cmake-build-debug/fontconvert --size 14 --out-dir out/
+
+# Scan entire generated/ directory and render all headers
+python tests/visualize_font.py --scan-dir
 ```

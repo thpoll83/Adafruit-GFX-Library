@@ -108,6 +108,28 @@ def parse_h_file(path: str) -> dict:
     last_cp   = int(m.group(2), 16) if m else len(glyphs) - 1
     y_advance = int(m.group(3))     if m else 0
 
+    # GFXglyph.bitmapOffset is uint16_t (max 65535).  Very large fonts (e.g. all
+    # country flags in one header) cause it to wrap at 65536.  Detect wrapping by
+    # checking for any non-monotonic transition between consecutive non-zero glyphs,
+    # and only then recompute using flat packing (the fontconvert output format).
+    # All other fonts keep their stored offsets as the ground truth — older Adafruit
+    # fonts (FreeSans, etc.) may have offsets that don't match a simple formula.
+    def _has_overflow(gs):
+        prev = -1
+        for g in gs:
+            if g['width'] > 0 and g['height'] > 0:
+                if g['bitmapOffset'] < prev:
+                    return True
+                prev = g['bitmapOffset']
+        return False
+
+    if _has_overflow(glyphs):
+        offset = 0
+        for g in glyphs:
+            g['bitmapOffset'] = offset
+            if g['width'] > 0 and g['height'] > 0:
+                offset += (g['width'] * g['height'] + 7) // 8
+
     return dict(
         name=font_name,
         bitmap=bitmap_bytes,

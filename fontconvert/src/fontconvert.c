@@ -13,6 +13,7 @@ REQUIRES FREETYPE LIBRARY.  www.freetype.org
 See notes at end for glyph nomenclature & other tidbits.
 */
 #include <ctype.h>
+#include <limits.h>
 #include <string.h>
 #include <ft2build.h>
 #include <getopt.h>
@@ -38,6 +39,7 @@ typedef struct settings {
 	int num_ranges;
 	int size;
 	int height;
+	int max_width;
 	int offset;
 	int render_mode;
 	int dump_codepoints;
@@ -48,6 +50,7 @@ static FontSettings s = {
 	.num_ranges = 0,
 	.size = 12,
 	.height = 0,
+	.max_width = 0,
 	.offset = 0,
 	.render_mode = 0,
 	.dump_codepoints = 0,
@@ -170,17 +173,74 @@ static void floyd_steinberg_to_bits(float *gray, int width, int rows) {
 	}
 }
 
+// Bilinear downscale of a float grayscale buffer to dst_w x dst_h.
+// Returns a newly allocated buffer; caller must free.
+static float *scale_gray_buf(const float *src, int src_w, int src_h,
+                              int dst_w, int dst_h) {
+	float *dst = (float *)malloc(dst_w * dst_h * sizeof(float));
+	if (!dst) return NULL;
+	for (int dy = 0; dy < dst_h; dy++) {
+		float sy = (float)dy * (src_h - 1) / (dst_h - 1 > 0 ? dst_h - 1 : 1);
+		int sy0 = (int)sy, sy1 = sy0 + 1 < src_h ? sy0 + 1 : sy0;
+		float fy = sy - sy0;
+		for (int dx = 0; dx < dst_w; dx++) {
+			float sx = (float)dx * (src_w - 1) / (dst_w - 1 > 0 ? dst_w - 1 : 1);
+			int sx0 = (int)sx, sx1 = sx0 + 1 < src_w ? sx0 + 1 : sx0;
+			float fx = sx - sx0;
+			dst[dy * dst_w + dx] =
+				src[sy0 * src_w + sx0] * (1 - fx) * (1 - fy) +
+				src[sy0 * src_w + sx1] * fx       * (1 - fy) +
+				src[sy1 * src_w + sx0] * (1 - fx) * fy       +
+				src[sy1 * src_w + sx1] * fx       * fy;
+		}
+	}
+	return dst;
+}
+
+// Compute scaled dimensions that fit within max_w x max_h, preserving aspect ratio.
+static void fit_dimensions(int src_w, int src_h, int max_w, int max_h,
+                            int *out_w, int *out_h) {
+	*out_w = src_w; *out_h = src_h;
+	if (max_h > 0 && src_h > max_h) {
+		*out_w = src_w * max_h / src_h;
+		*out_h = max_h;
+	}
+	if (max_w > 0 && *out_w > max_w) {
+		*out_h = *out_h * max_w / *out_w;
+		*out_w = max_w;
+	}
+	if (*out_w < 1) *out_w = 1;
+	if (*out_h < 1) *out_h = 1;
+}
+
 // Shared pixel-to-bits renderer: dispatches on pixel_mode so both range and
 // sequence paths use identical quantisation logic.
-static void render_bitmap_to_bits(FT_Bitmap *bitmap) {
+// Sets *out_w / *out_h to the actual pixel dimensions rendered (after scaling).
+static void render_bitmap_to_bits(FT_Bitmap *bitmap, int *out_w, int *out_h) {
 	int x, y, byte, rnd;
 	uint8_t bit;
+	*out_w = (int)bitmap->width;
+	*out_h = (int)bitmap->rows;
 	if (bitmap->pixel_mode == FT_PIXEL_MODE_BGRA) {
 		float *gray_buf = bgra_to_gray_buf(bitmap->buffer, bitmap->pitch,
 		                                   bitmap->width, bitmap->rows);
 		if (gray_buf) {
-			floyd_steinberg_to_bits(gray_buf, bitmap->width, bitmap->rows);
-			free(gray_buf);
+			int dst_w, dst_h;
+			fit_dimensions(bitmap->width, bitmap->rows,
+			               s.max_width, s.height, &dst_w, &dst_h);
+			if (dst_w != (int)bitmap->width || dst_h != (int)bitmap->rows) {
+				float *scaled = scale_gray_buf(gray_buf, bitmap->width, bitmap->rows,
+				                              dst_w, dst_h);
+				free(gray_buf);
+				gray_buf = scaled;
+				fprintf(stderr, "Info: scaled %dx%d → %dx%d\n",
+				        bitmap->width, bitmap->rows, dst_w, dst_h);
+			}
+			if (gray_buf) {
+				*out_w = dst_w; *out_h = dst_h;
+				floyd_steinberg_to_bits(gray_buf, dst_w, dst_h);
+				free(gray_buf);
+			}
 		}
 	} else if (s.render_mode == 1) {
 		for (y = 0; y < (int)bitmap->rows; y++)
@@ -199,6 +259,26 @@ static void render_bitmap_to_bits(FT_Bitmap *bitmap) {
 	}
 }
 
+// For outline fonts use FT_Set_Char_Size; for bitmap-only faces (e.g. CBDT/CBLC
+// color emoji) select the strike whose y_ppem is closest to the requested size.
+static void setup_face_size(FT_Face face) {
+	if (face->num_fixed_sizes > 0) {
+		int target_px = (s.size * DPI + 36) / 72;
+		int best = 0, best_diff = INT_MAX;
+		for (int i = 0; i < face->num_fixed_sizes; i++) {
+			int diff = abs((face->available_sizes[i].y_ppem >> 6) - target_px);
+			if (diff < best_diff) { best_diff = diff; best = i; }
+		}
+		FT_Select_Size(face, best);
+		fprintf(stderr, "Info: bitmap font — selected strike %d (%dx%d px)\n",
+		        best,
+		        face->available_sizes[best].x_ppem >> 6,
+		        face->available_sizes[best].y_ppem >> 6);
+	} else {
+		FT_Set_Char_Size(face, s.size << 6, 0, DPI, 0);
+	}
+}
+
 int extract_range_ft(GFXglyph* table, glyph_name* names, FT_Face face,
 									FT_ULong first, FT_ULong last, int* bitmapOffset) {
 	FT_ULong codepoint;
@@ -210,7 +290,7 @@ int extract_range_ft(GFXglyph* table, glyph_name* names, FT_Face face,
 	FT_BitmapGlyphRec* rec;
 
 	// << 6 because '26dot6' fixed-point format
-	FT_Set_Char_Size(face, s.size << 6, 0, DPI, 0);
+	setup_face_size(face);
 
 	// Process glyphs and output huge bitmap data array
 	for (codepoint = first; codepoint <= last; codepoint++, table_idx++) {
@@ -238,11 +318,16 @@ int extract_range_ft(GFXglyph* table, glyph_name* names, FT_Face face,
 			names[table_idx].name[0] = 0;
 		}
 
-		if ((err = FT_Render_Glyph(face->glyph, s.render_mode == 1
-																							? FT_RENDER_MODE_NORMAL
-																							: FT_RENDER_MODE_MONO))) {
-			fprintf(stderr, "Error %d rendering char '%lu'\n", err, codepoint);
-			continue;
+		// FT_Load_Glyph with FT_LOAD_COLOR already deposits a BGRA bitmap for
+		// color emoji fonts (CBDT/sbix); calling FT_Render_Glyph on it destroys
+		// the bitmap and produces width=0.  Only render outline glyphs.
+		if (face->glyph->format != FT_GLYPH_FORMAT_BITMAP) {
+			if ((err = FT_Render_Glyph(face->glyph, s.render_mode == 1
+																								? FT_RENDER_MODE_NORMAL
+																								: FT_RENDER_MODE_MONO))) {
+				fprintf(stderr, "Error %d rendering char '%lu'\n", err, codepoint);
+				continue;
+			}
 		}
 
 		if ((err = FT_Get_Glyph(face->glyph, &glyph))) {
@@ -257,13 +342,13 @@ int extract_range_ft(GFXglyph* table, glyph_name* names, FT_Face face,
 		// reduce flash space requirements.  Glyph bitmaps are
 		// fully bit-packed; no per-scanline pad, though end of
 		// each character may be padded to next byte boundary
-		// when needed.  16-bit offset means 64K max for bitmaps,
-		// code currently doesn't check for overflow.  (Doesn't
-		// check that size & offsets are within bounds either for
-		// that matter...please convert fonts responsibly.)
+		if (*bitmapOffset > 0xFFFF)
+			fprintf(stderr,
+			        "Warning: bitmapOffset %d exceeds uint16_t max (65535) for "
+			        "codepoint 0x%lx — GFXglyph.bitmapOffset will wrap; "
+			        "split this font into smaller ranges.\n",
+			        *bitmapOffset, codepoint);
 		table[table_idx].bitmapOffset = *bitmapOffset;
-		table[table_idx].width = bitmap->width;
-		table[table_idx].height = bitmap->rows;
 		table[table_idx].xAdvance = face->glyph->advance.x >> 6;
 		table[table_idx].xOffset = rec->left;
 		table[table_idx].yOffset = 1 - rec->top;
@@ -277,19 +362,24 @@ int extract_range_ft(GFXglyph* table, glyph_name* names, FT_Face face,
 							bitmap->rows, (char)(face->glyph->format >> 24),
 							(char)(face->glyph->format >> 16),
 							(char)(face->glyph->format >> 8), (char)(face->glyph->format));
+			table[table_idx].width = 0;
+			table[table_idx].height = 0;
 			continue;
 		}
 
-		render_bitmap_to_bits(bitmap);
+		int out_w, out_h;
+		render_bitmap_to_bits(bitmap, &out_w, &out_h);
+		table[table_idx].width = out_w;
+		table[table_idx].height = out_h;
 
 		// Pad end of char bitmap to next byte boundary if needed
-		int n = (bitmap->width * bitmap->rows) & 7;
+		int n = (out_w * out_h) & 7;
 		if (n) { // Pixel count not an even multiple of 8?
 			n = 8 - n; // # bits to next multiple
 			while (n--)
 				enbit(0);
 		}
-		*bitmapOffset += (bitmap->width * bitmap->rows + 7) / 8;
+		*bitmapOffset += (out_w * out_h + 7) / 8;
 
 		FT_Done_Glyph(glyph);
 	}
@@ -302,12 +392,12 @@ int extract_range_ft(GFXglyph* table, glyph_name* names, FT_Face face,
 // data via enbit().  Returns the number of GFXglyph entries written, or -1.
 int shape_and_render_sequence(GFXglyph *table, glyph_name *names, FT_Face face,
                                const char *seq_str, int *bitmapOffset) {
-	uint32_t codepoints[64];
+	uint32_t codepoints[2048];
 	int n_codepoints = 0;
 
 	char *buf = strdup(seq_str);
 	char *tok = strtok(buf, " \t,");
-	while (tok && n_codepoints < 64) {
+	while (tok && n_codepoints < 2048) {
 		codepoints[n_codepoints++] = (uint32_t)strtoul(tok, NULL, 16);
 		tok = strtok(NULL, " \t,");
 	}
@@ -318,7 +408,7 @@ int shape_and_render_sequence(GFXglyph *table, glyph_name *names, FT_Face face,
 		return -1;
 	}
 
-	FT_Set_Char_Size(face, s.size << 6, 0, DPI, 0);
+	setup_face_size(face);
 
 	hb_font_t   *hb_font = hb_ft_font_create(face, NULL);
 	hb_buffer_t *hb_buf  = hb_buffer_create();
@@ -347,12 +437,14 @@ int shape_and_render_sequence(GFXglyph *table, glyph_name *names, FT_Face face,
 			fprintf(stderr, "Error %d loading shaped glyph %u (seq[%u])\n", err, gid, i);
 			continue;
 		}
-		if ((err = FT_Render_Glyph(face->glyph,
-		                            s.render_mode == 1
-		                              ? FT_RENDER_MODE_NORMAL
-		                              : FT_RENDER_MODE_MONO))) {
-			fprintf(stderr, "Error %d rendering shaped glyph %u\n", err, gid);
-			continue;
+		if (face->glyph->format != FT_GLYPH_FORMAT_BITMAP) {
+			if ((err = FT_Render_Glyph(face->glyph,
+			                            s.render_mode == 1
+			                              ? FT_RENDER_MODE_NORMAL
+			                              : FT_RENDER_MODE_MONO))) {
+				fprintf(stderr, "Error %d rendering shaped glyph %u\n", err, gid);
+				continue;
+			}
 		}
 
 		FT_Glyph ft_glyph;
@@ -364,9 +456,13 @@ int shape_and_render_sequence(GFXglyph *table, glyph_name *names, FT_Face face,
 		FT_Bitmap        *bitmap = &face->glyph->bitmap;
 		FT_BitmapGlyphRec *rec   = (FT_BitmapGlyphRec *)ft_glyph;
 
+		if (*bitmapOffset > 0xFFFF)
+			fprintf(stderr,
+			        "Warning: bitmapOffset %d exceeds uint16_t max (65535) for "
+			        "seq[%u] gid %u — GFXglyph.bitmapOffset will wrap; "
+			        "split this font into smaller ranges.\n",
+			        *bitmapOffset, i, gid);
 		table[written].bitmapOffset = *bitmapOffset;
-		table[written].width        = bitmap->width;
-		table[written].height       = bitmap->rows;
 		table[written].xAdvance     = face->glyph->advance.x >> 6;
 		table[written].xOffset      = rec->left;
 		table[written].yOffset      = 1 - rec->top;
@@ -375,15 +471,20 @@ int shape_and_render_sequence(GFXglyph *table, glyph_name *names, FT_Face face,
 		if (bitmap->rows == 0 || bitmap->width == 0) {
 			fprintf(stderr, "Info: no pixel data for shaped glyph %u\n", gid);
 			FT_Done_Glyph(ft_glyph);
+			table[written].width  = 0;
+			table[written].height = 0;
 			written++; // keep slot so indices stay consistent
 			continue;
 		}
 
-		render_bitmap_to_bits(bitmap);
+		int seq_out_w, seq_out_h;
+		render_bitmap_to_bits(bitmap, &seq_out_w, &seq_out_h);
+		table[written].width  = seq_out_w;
+		table[written].height = seq_out_h;
 
-		int n = (bitmap->width * bitmap->rows) & 7;
+		int n = (seq_out_w * seq_out_h) & 7;
 		if (n) { n = 8 - n; while (n--) enbit(0); }
-		*bitmapOffset += (bitmap->width * bitmap->rows + 7) / 8;
+		*bitmapOffset += (seq_out_w * seq_out_h + 7) / 8;
 
 		FT_Done_Glyph(ft_glyph);
 		written++;
@@ -456,7 +557,7 @@ int parse_args(int argc, char* argv[], char** fontFileName,
 		return -1;
 	}
 
-	while ((opt = getopt(argc, argv, "dgs:f:v:r:o:n:S:")) != -1) {
+	while ((opt = getopt(argc, argv, "dgs:f:v:r:o:n:S:W:")) != -1) {
 		switch (opt) {
 		case 's':
 			if (!optarg) {
@@ -526,6 +627,14 @@ int parse_args(int argc, char* argv[], char** fontFileName,
 				return -1;
 			}
 			s.sequence = strdup(optarg);
+			break;
+
+		case 'W':
+			if (!optarg) {
+				printf("Missing value for argument W!\n");
+				return -1;
+			}
+			s.max_width = to_int(optarg);
 			break;
 
 		case '?':
@@ -694,7 +803,7 @@ int main(int argc, char* argv[]) {
 
 	// Allocate space for font name and glyph table
 	// Sequence mode may emit up to 64 shaped glyphs regardless of codepoint ranges
-	int alloc_num = (s.sequence && total_num < 64) ? 64 : total_num;
+	int alloc_num = (s.sequence && total_num < 2048) ? 2048 : total_num;
 	if ((!(fontName = malloc(strlen(fontFileName) + 22))) ||
 		(!(table = (GFXglyph*)malloc(alloc_num * sizeof(GFXglyph)))) ||
 		(!(names = (glyph_name*)malloc(alloc_num * sizeof(glyph_name))))) {
