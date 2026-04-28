@@ -485,54 +485,58 @@ int extract_range_ft(GFXglyph* table, glyph_name* names, FT_Face face,
 	return 0;
 }
 
-// Shape a space/comma-separated string of hex Unicode codepoints with HarfBuzz,
-// render each resulting glyph, populate table[] and names[], and emit bitmap
-// data via enbit().  Returns the number of GFXglyph entries written, or -1.
-int shape_and_render_sequence(GFXglyph *table, glyph_name *names, FT_Face face,
-                               const char *seq_str, int *bitmapOffset) {
-	uint32_t codepoints[2048];
-	int n_codepoints = 0;
+// Shape one comma-separated group of space-delimited hex codepoints with HarfBuzz,
+// render each resulting glyph into table[]/names[] starting at *written, and emit
+// bitmap bits via enbit().  Returns 0 on success, -1 on fatal error.
+static int shape_render_group(GFXglyph *table, glyph_name *names,
+                               hb_font_t *hb_font, FT_Face face,
+                               const char *group_str, int group_idx,
+                               int *bitmapOffset, int *written) {
+	uint32_t cps[512];
+	int n_cp = 0;
+	int err;
 
-	char *buf = strdup(seq_str);
-	char *tok = strtok(buf, " \t,");
-	while (tok && n_codepoints < 2048) {
-		codepoints[n_codepoints++] = (uint32_t)strtoul(tok, NULL, 16);
-		tok = strtok(NULL, " \t,");
+	char *cp_buf = strdup(group_str);
+	char *tok = strtok(cp_buf, " \t");
+	while (tok && n_cp < 512) {
+		char *end;
+		unsigned long v = strtoul(tok, &end, 16);
+		if (end != tok)
+			cps[n_cp++] = (uint32_t)v;
+		tok = strtok(NULL, " \t");
 	}
-	free(buf);
+	free(cp_buf);
 
-	if (n_codepoints == 0) {
-		fprintf(stderr, "Error: no codepoints found in sequence '%s'\n", seq_str);
-		return -1;
-	}
+	if (n_cp == 0)
+		return 0; // empty group (e.g. trailing comma) — skip silently
 
-	setup_face_size(face);
-
-	hb_font_t   *hb_font = hb_ft_font_create(face, NULL);
-	hb_buffer_t *hb_buf  = hb_buffer_create();
+	hb_buffer_t *hb_buf = hb_buffer_create();
 	hb_buffer_set_content_type(hb_buf, HB_BUFFER_CONTENT_TYPE_UNICODE);
-
-	for (int i = 0; i < n_codepoints; i++)
-		hb_buffer_add(hb_buf, codepoints[i], i);
+	for (int i = 0; i < n_cp; i++)
+		hb_buffer_add(hb_buf, cps[i], i);
 	hb_buffer_set_direction(hb_buf, HB_DIRECTION_LTR);
 	hb_buffer_guess_segment_properties(hb_buf);
 	hb_shape(hb_font, hb_buf, NULL, 0);
 
 	unsigned int glyph_count;
 	hb_glyph_info_t *glyph_info = hb_buffer_get_glyph_infos(hb_buf, &glyph_count);
-	fprintf(stderr, "HarfBuzz: %d codepoint(s) → %u glyph(s)\n",
-	        n_codepoints, glyph_count);
+	fprintf(stderr, "HarfBuzz: group[%d] %d codepoint(s) → %u glyph(s)\n",
+	        group_idx, n_cp, glyph_count);
 
-	int written = 0;
-	int err;
 	for (unsigned int i = 0; i < glyph_count; i++) {
-		uint32_t gid = glyph_info[i].codepoint; // glyph index after shaping
+		uint32_t gid = glyph_info[i].codepoint;
+
+		if (*written >= 2048) {
+			fprintf(stderr, "Warning: glyph table full (2048 slots), skipping rest\n");
+			break;
+		}
 
 		if ((err = FT_Load_Glyph(face, gid,
 		                          s.render_mode == 1
 		                            ? FT_LOAD_TARGET_NORMAL | FT_LOAD_COLOR
 		                            : FT_LOAD_TARGET_MONO))) {
-			fprintf(stderr, "Error %d loading shaped glyph %u (seq[%u])\n", err, gid, i);
+			fprintf(stderr, "Error %d loading glyph %u (group[%d] seq[%u])\n",
+			        err, gid, group_idx, i);
 			continue;
 		}
 		if (face->glyph->format != FT_GLYPH_FORMAT_BITMAP) {
@@ -540,14 +544,15 @@ int shape_and_render_sequence(GFXglyph *table, glyph_name *names, FT_Face face,
 			                            s.render_mode == 1
 			                              ? FT_RENDER_MODE_NORMAL
 			                              : FT_RENDER_MODE_MONO))) {
-				fprintf(stderr, "Error %d rendering shaped glyph %u\n", err, gid);
+				fprintf(stderr, "Error %d rendering glyph %u (group[%d])\n",
+				        err, gid, group_idx);
 				continue;
 			}
 		}
 
 		FT_Glyph ft_glyph;
 		if ((err = FT_Get_Glyph(face->glyph, &ft_glyph))) {
-			fprintf(stderr, "Error %d getting shaped glyph %u\n", err, gid);
+			fprintf(stderr, "Error %d getting glyph %u\n", err, gid);
 			continue;
 		}
 
@@ -557,39 +562,86 @@ int shape_and_render_sequence(GFXglyph *table, glyph_name *names, FT_Face face,
 		if (*bitmapOffset > 0xFFFF)
 			fprintf(stderr,
 			        "Warning: bitmapOffset %d exceeds uint16_t max (65535) for "
-			        "seq[%u] gid %u — GFXglyph.bitmapOffset will wrap; "
-			        "split this font into smaller ranges.\n",
-			        *bitmapOffset, i, gid);
-		table[written].bitmapOffset = *bitmapOffset;
-		table[written].xAdvance     = face->glyph->advance.x >> 6;
-		table[written].xOffset      = rec->left;
-		table[written].yOffset      = 1 - rec->top;
-		snprintf(names[written].name, sizeof(names[written].name), "gid_%u", gid);
+			        "group[%d] seq[%u] gid %u — split into smaller ranges.\n",
+			        *bitmapOffset, group_idx, i, gid);
+
+		table[*written].bitmapOffset = *bitmapOffset;
+		table[*written].xAdvance     = face->glyph->advance.x >> 6;
+		table[*written].xOffset      = rec->left;
+		table[*written].yOffset      = 1 - rec->top;
+		snprintf(names[*written].name, sizeof(names[*written].name),
+		         "g%d_%u", group_idx, gid);
 
 		if (bitmap->rows == 0 || bitmap->width == 0) {
-			fprintf(stderr, "Info: no pixel data for shaped glyph %u\n", gid);
+			fprintf(stderr, "Info: no pixel data for glyph %u (group[%d])\n",
+			        gid, group_idx);
 			FT_Done_Glyph(ft_glyph);
-			table[written].width  = 0;
-			table[written].height = 0;
-			written++; // keep slot so indices stay consistent
+			table[*written].width  = 0;
+			table[*written].height = 0;
+			(*written)++;
 			continue;
 		}
 
-		int seq_out_w, seq_out_h;
-		render_bitmap_to_bits(bitmap, &seq_out_w, &seq_out_h);
-		table[written].width  = seq_out_w;
-		table[written].height = seq_out_h;
+		int out_w, out_h;
+		render_bitmap_to_bits(bitmap, &out_w, &out_h);
+		table[*written].width  = out_w;
+		table[*written].height = out_h;
 
-		int n = (seq_out_w * seq_out_h) & 7;
+		int n = (out_w * out_h) & 7;
 		if (n) { n = 8 - n; while (n--) enbit(0); }
-		*bitmapOffset += (seq_out_w * seq_out_h + 7) / 8;
+		*bitmapOffset += (out_w * out_h + 7) / 8;
 
 		FT_Done_Glyph(ft_glyph);
-		written++;
+		(*written)++;
 	}
 
 	hb_buffer_destroy(hb_buf);
+	return 0;
+}
+
+// Shape a sequence string with HarfBuzz, render each resulting glyph, populate
+// table[] and names[], and emit bitmap data via enbit().
+//
+// Syntax:  "CP1 CP2, CP3 CP4 CP5, CP6"
+//   Comma separates independent glyphs (each comma group is shaped separately).
+//   Spaces separate codepoints within one glyph (HarfBuzz handles ligatures,
+//   ZWJ, regional-indicator clustering, etc. within a group).
+//
+// Backward-compatible: a string with no commas is treated as one group, letting
+// HarfBuzz cluster all codepoints automatically (original behaviour).
+//
+// Returns the number of GFXglyph entries written, or -1 on fatal error.
+int shape_and_render_sequence(GFXglyph *table, glyph_name *names, FT_Face face,
+                               const char *seq_str, int *bitmapOffset) {
+	if (!seq_str || !*seq_str) {
+		fprintf(stderr, "Error: empty -S sequence\n");
+		return -1;
+	}
+
+	setup_face_size(face);
+	hb_font_t *hb_font = hb_ft_font_create(face, NULL);
+
+	int written    = 0;
+	int group_idx  = 0;
+
+	char *input      = strdup(seq_str);
+	char *save_outer = NULL;
+	char *group      = strtok_r(input, ",", &save_outer);
+
+	while (group) {
+		shape_render_group(table, names, hb_font, face,
+		                   group, group_idx, bitmapOffset, &written);
+		group = strtok_r(NULL, ",", &save_outer);
+		group_idx++;
+	}
+
+	free(input);
 	hb_font_destroy(hb_font);
+
+	if (written == 0) {
+		fprintf(stderr, "Error: no glyphs rendered from sequence '%s'\n", seq_str);
+		return -1;
+	}
 	return written;
 }
 
@@ -597,7 +649,8 @@ void print_usage(char* argv[]) {
 	fprintf(stderr,
 	        "usage: %s -f FONTFILE [-s SIZE] [-v VARIANT] [-g] [-r H] [-W W]\n"
 	        "       %*s [-D MODE] [-e EXPOSURE] [-o OFFSET|-n OFFSET]\n"
-	        "       %*s [-S \"CP ...\" | RANGES]\n",
+	        "       %*s [-S \"G[,G]...\" | RANGES]\n"
+	        "       where G = space-separated hex codepoints for one glyph\n",
 	        argv[0], (int)strlen(argv[0]), "", (int)strlen(argv[0]), "");
 	fprintf(stderr, "  Using FreeType Version %d.%d.%d\n\n", FREETYPE_MAJOR,
 	        FREETYPE_MINOR, FREETYPE_PATCH);
@@ -612,8 +665,9 @@ void print_usage(char* argv[]) {
 	fprintf(stderr,
 	        "    -g        Grayscale / color-emoji mode:\n"
 	        "                BGRA bitmaps (CBDT/sbix color fonts) are composited\n"
-	        "                over white and Floyd-Steinberg dithered to 1-bit.\n"
-	        "                8-bit gray bitmaps use random dithering.\n"
+	        "                over white then quantised to 1-bit.\n"
+	        "                8-bit gray bitmaps are also quantised to 1-bit.\n"
+	        "              The dithering algorithm is selected with -D (default: fs).\n"
 	        "              Required for NotoColorEmoji and similar color fonts.\n");
 	fprintf(stderr,
 	        "    -r N      Render-size override in pixels.  For bitmap-only fonts\n"
@@ -648,12 +702,18 @@ void print_usage(char* argv[]) {
 	        "    -n N      Subtract N from every codepoint written into the output\n"
 	        "              struct (takes priority over -o)\n");
 	fprintf(stderr,
-	        "    -S \"...\"  Space- or comma-separated hex codepoints shaped by\n"
-	        "              HarfBuzz before rendering.  Handles ZWJ sequences, flag\n"
-	        "              regional-indicator pairs, ligatures, etc.  When -S is\n"
-	        "              given, RANGES are ignored.\n"
-	        "              e.g. -S \"1F1E9 1F1EA\"          German flag\n"
-	        "                   -S \"1F3F3 FE0F 200D 1F308\" rainbow flag (ZWJ)\n");
+	        "    -S \"...\"  Sequence of hex codepoints shaped by HarfBuzz.\n"
+	        "              When -S is given, RANGES are ignored.\n"
+	        "              Syntax:\n"
+	        "                Spaces separate codepoints within one glyph —\n"
+	        "                  HarfBuzz handles ZWJ, ligatures, regional-indicator\n"
+	        "                  clustering, etc. within each group.\n"
+	        "                Commas separate independent glyphs — each comma group\n"
+	        "                  is shaped in its own HarfBuzz call.\n"
+	        "              e.g. -S \"1F1E9 1F1EA\"                  German flag\n"
+	        "                   -S \"1F1E9 1F1EA, 1F1EB 1F1F7\"     DE + FR flags\n"
+	        "                   -S \"1F3F3 FE0F 200D 1F308\"         rainbow flag (ZWJ)\n"
+	        "                   -S \"1F600, 1F601, 1F602\"           3 separate emoji\n");
 	fprintf(stderr,
 	        "    -d        Dump all codepoints (and variant selectors) present in\n"
 	        "              the font to stderr, then exit without generating output.\n");
@@ -681,9 +741,9 @@ void print_usage(char* argv[]) {
 	        "    %s -fNotoColorEmoji.ttf -s20 -g -r50 -v_Emoji_ 0x1f600 0x1f64f"
 	        " > Emoji.h\n\n", argv[0]);
 	fprintf(stderr,
-	        "    # All country flags via HarfBuzz, scaled to fit 60x36 px\n"
+	        "    # Two flags explicitly comma-separated, scaled to fit 60x36 px\n"
 	        "    %s -fNotoColorEmoji.ttf -s20 -g -r36 -W60 -v_Flags_"
-	        " -S \"1F1E9 1F1EA ...\" > Flags.h\n", argv[0]);
+	        " -S \"1F1E9 1F1EA, 1F1EB 1F1F7\" > Flags.h\n", argv[0]);
 }
 
 int parse_args(int argc, char* argv[], char** fontFileName,

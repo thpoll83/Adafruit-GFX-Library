@@ -262,6 +262,70 @@ class TestSequenceMode:
 
 
 # ---------------------------------------------------------------------------
+# Test: comma-separated -S syntax
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(not DEJAVU.exists(), reason="DejaVuSans not installed")
+class TestCommaSequence:
+    """
+    Validates the comma-as-glyph-separator extension of -S.
+
+    Rules under test:
+      - Each comma group is shaped as an independent HarfBuzz call.
+      - Spaces within a group are codepoints for that one glyph.
+      - Trailing / empty comma groups are silently skipped.
+      - For a non-ligating font (DejaVuSans Latin), comma-separated single
+        codepoints give the same glyph count as the space-only equivalent.
+    """
+
+    def _run(self, seq):
+        return h_to_font(run_fontconvert(
+            f'-f{DEJAVU}', '-s14', '-g', '-v_CSeq_', '-S', seq
+        ))
+
+    def test_three_comma_glyphs_count(self):
+        """'A, B, C' — three comma groups each with one codepoint → 3 glyphs."""
+        assert len(self._run('41, 42, 43')['glyphs']) == 3
+
+    def test_two_comma_groups_with_multi_cp_first(self):
+        """'A B, C' — first group has two codepoints, second one → still 3 glyphs
+        (DejaVuSans has no AB ligature, so HarfBuzz emits A and B separately)."""
+        assert len(self._run('41 42, 43')['glyphs']) == 3
+
+    def test_comma_matches_space_for_nonligating_font(self):
+        """For Latin letters in DejaVuSans, '41, 42, 43' and '41 42 43' produce
+        the same number of glyphs because no clusters form."""
+        assert (len(self._run('41, 42, 43')['glyphs']) ==
+                len(self._run('41 42 43')['glyphs']))
+
+    def test_trailing_comma_ignored(self):
+        """'41, 42,' — trailing empty group must not produce an extra slot."""
+        assert len(self._run('41, 42,')['glyphs']) == 2
+
+    def test_comma_glyphs_have_bitmap_content(self):
+        """Every glyph from a comma-separated sequence must have actual pixels."""
+        font = self._run('41, 42, 43, 44, 45')  # A B C D E
+        for i, g in enumerate(font['glyphs']):
+            start = g['bitmapOffset']
+            end   = start + (g['width'] * g['height'] + 7) // 8
+            assert any(font['bitmap'][start:end]), \
+                f"Glyph {i} from comma sequence has empty bitmap"
+
+    def test_comma_no_fail_assertions(self):
+        fails = [m for m in run_assertions(self._run('41, 42, 43'))
+                 if m.startswith('FAIL')]
+        assert fails == []
+
+    def test_mixed_comma_and_space_offsets_in_bounds(self):
+        """Bitmap offsets must stay within the flat bitmap array."""
+        font = self._run('41 42, 43 44, 45')  # groups: AB, CD, E
+        for i, g in enumerate(font['glyphs']):
+            end = g['bitmapOffset'] + (g['width'] * g['height'] + 7) // 8
+            assert end <= len(font['bitmap']), \
+                f"Glyph {i} offset+size overflows bitmap"
+
+
+# ---------------------------------------------------------------------------
 # Test: BGRA color-emoji path (NotoColorEmoji) — skipped until font present
 # ---------------------------------------------------------------------------
 
@@ -358,7 +422,8 @@ def _flag_seq(code: str) -> str:
 
 
 def _all_flags_sequence() -> str:
-    return ' '.join(_flag_seq(cc) for cc in _FLAG_CODES)
+    """Comma-separated flag sequences: each pair is shaped independently by HarfBuzz."""
+    return ', '.join(_flag_seq(cc) for cc in _FLAG_CODES)
 
 
 @pytest.mark.skipif(not NOTO_COLOR.exists(),
@@ -425,7 +490,7 @@ class TestColorEmojiFlags:
 # ---------------------------------------------------------------------------
 
 _DITHER_MODES  = ['fs', 'stucki', 'bayer', 'threshold', 'random']
-_EXPOSURES     = [-0.2, 0.0, 0.2]
+_EXPOSURES     = [-0.1, 0.0, 0.1]
 _FLAG_VARIANTS = list(itertools.product(_DITHER_MODES, _EXPOSURES))
 
 
@@ -438,7 +503,7 @@ class TestFlagDitheringVariants:
     and exposure value, writing a contact-sheet PNG for each to
     font_test_output/ for visual comparison.
 
-    15 combinations: {fs, stucki, bayer, threshold, random} × {-0.2, 0.0, +0.2}
+    15 combinations: {fs, stucki, bayer, threshold, random} × {-0.1, 0.0, +0.1}
     """
 
     @pytest.mark.parametrize(
