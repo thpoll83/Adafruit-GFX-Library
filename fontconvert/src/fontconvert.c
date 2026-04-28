@@ -15,19 +15,33 @@ See notes at end for glyph nomenclature & other tidbits.
 #include <ctype.h>
 #include <limits.h>
 #include <string.h>
-#include <ft2build.h>
-#include <getopt.h>
-#include <pwd.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/types.h>
-#include <unistd.h>
+
+#ifdef _WIN32
+#  ifndef _CRT_SECURE_NO_WARNINGS
+#    define _CRT_SECURE_NO_WARNINGS
+#  endif
+#  include <direct.h>          /* _chdir */
+#  define strdup    _strdup
+#  define chdir     _chdir
+#  define strtok_r  strtok_s   /* same signature on MSVC */
+#  include "getopt_win.h"
+#else
+#  include <getopt.h>
+#  include <pwd.h>
+#  include <sys/types.h>
+#  include <unistd.h>
+   extern char *optarg;
+   extern int   optind, opterr, optopt;
+#endif
+
+#include <ft2build.h>
 #include FT_GLYPH_H
 #include FT_MODULE_H
 #include FT_TRUETYPE_DRIVER_H
 #include "../../gfxfont.h" // Adafruit_GFX font structures
-
 
 #include <hb.h>
 #include <hb-ft.h>
@@ -1005,11 +1019,16 @@ int main(int argc, char* argv[]) {
 	if (fontFileName[0] == '~' && strlen(fontFileName) > 2) {
 		const char* homedir;
 
+#ifdef _WIN32
+		homedir = getenv("USERPROFILE");
+		if (homedir == NULL) homedir = getenv("HOMEPATH");
+#else
 		if ((homedir = getenv("HOME")) == NULL) {
 			homedir = getpwuid(getuid())->pw_dir;
 		}
-		if (chdir(homedir) != 0) {
-			fprintf(stderr, "Could not access '%s'\n", homedir);
+#endif
+		if (homedir == NULL || chdir(homedir) != 0) {
+			fprintf(stderr, "Could not access home directory\n");
 			return 1;
 		}
 		fontName = &fontFileName[2];

@@ -12,12 +12,14 @@ if (WIN32)
   else()
     set(freetype_lib_name freetype.lib)
   endif()
+  set(harfbuzz_lib_name harfbuzz.lib)
 else()
   if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(freetype_lib_name libfreetyped.a)
   else()
     set(freetype_lib_name libfreetype.a)
   endif()
+  set(harfbuzz_lib_name libharfbuzz.a)
 endif()
 
 # Step 1: Build FreeType w/o Harfbuzz
@@ -62,6 +64,7 @@ if (WIN32)
     -DCMAKE_PREFIX_PATH=${freetype_without_harfbuzz_dir}
     -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
     -DHB_HAVE_FREETYPE=On
+    BUILD_BYPRODUCTS <INSTALL_DIR>/lib/${harfbuzz_lib_name}
   )
   
 else()
@@ -81,6 +84,7 @@ endif()
 ExternalProject_Get_Property(harfbuzz install_dir)
 set(harfbuzz_dir ${install_dir})
 set(HARFBUZZ_DIR ${harfbuzz_dir} PARENT_SCOPE)
+set(HARFBUZZ_LIB_NAME ${harfbuzz_lib_name} PARENT_SCOPE)
 
 # Step 3: Build FreeType with Harfbuzz
 # -------------------------------------------------------
@@ -102,6 +106,7 @@ ExternalProject_Add(
 
 ExternalProject_Get_Property(freetype_with_harfbuzz install_dir)
 set(FREETYPE_DIR ${install_dir} PARENT_SCOPE)
+set(FREETYPE_LIB_NAME ${freetype_lib_name} PARENT_SCOPE)
 
 list(APPEND deps freetype_with_harfbuzz)
 
