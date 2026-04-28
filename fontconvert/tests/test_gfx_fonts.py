@@ -50,6 +50,7 @@ font_test_output/.  All verified passing as of 2026-04-27.
   python3 visualize_font.py $GENERATED/3NotoSansSymbols2_Regular_Arrows_20pt.h --out-dir font_test_output/
 """
 
+import itertools
 import subprocess
 import tempfile
 from pathlib import Path
@@ -417,6 +418,52 @@ class TestColorEmojiFlags:
         w, h = make_sheet_png(font, sheet_path, scale=4, cols=20)
         print(f"\n  Flags sheet written: {sheet_path}  ({w}×{h} px)")
         assert Path(sheet_path).exists()
+
+
+# ---------------------------------------------------------------------------
+# Test: flags rendered with every dithering mode × exposure combination
+# ---------------------------------------------------------------------------
+
+_DITHER_MODES  = ['fs', 'stucki', 'bayer', 'threshold', 'random']
+_EXPOSURES     = [-0.2, 0.0, 0.2]
+_FLAG_VARIANTS = list(itertools.product(_DITHER_MODES, _EXPOSURES))
+
+
+@pytest.mark.skipif(not NOTO_COLOR.exists(),
+                    reason="NotoColorEmoji font not present at "
+                           f"{NOTO_COLOR}")
+class TestFlagDitheringVariants:
+    """
+    Renders all country flags for every combination of dithering algorithm
+    and exposure value, writing a contact-sheet PNG for each to
+    font_test_output/ for visual comparison.
+
+    15 combinations: {fs, stucki, bayer, threshold, random} × {-0.2, 0.0, +0.2}
+    """
+
+    @pytest.mark.parametrize(
+        "dither,exposure",
+        _FLAG_VARIANTS,
+        ids=[f"{d}_e{e:+.1f}" for d, e in _FLAG_VARIANTS],
+    )
+    def test_flags_dither_sheet(self, dither, exposure):
+        seq = _all_flags_sequence()
+        font = h_to_font(run_fontconvert(
+            f'-f{NOTO_COLOR}', '-s20', '-g', '-r36', '-W60',
+            f'-D{dither}', f'-e{exposure:.2f}',
+            '-v_Flags_', '-S', seq,
+        ))
+
+        assert len(font['glyphs']) == len(_FLAG_CODES), \
+            f"[{dither} e{exposure:+.1f}] Expected {len(_FLAG_CODES)} glyphs, " \
+            f"got {len(font['glyphs'])}"
+
+        out_dir = Path(__file__).parent / 'font_test_output'
+        out_dir.mkdir(exist_ok=True)
+        sheet_path = out_dir / f"flags_{dither}_e{exposure:+.1f}_sheet.png"
+        w, h = make_sheet_png(font, str(sheet_path), scale=4, cols=20)
+        assert sheet_path.exists() and w > 0 and h > 0
+        print(f"\n  {sheet_path.name}  ({w}×{h} px)")
 
 
 # ---------------------------------------------------------------------------

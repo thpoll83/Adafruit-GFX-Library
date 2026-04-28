@@ -35,6 +35,14 @@ See notes at end for glyph nomenclature & other tidbits.
 
 #define DPI 141 // Approximate res. of Adafruit 2.8" TFT
 
+typedef enum {
+	DITHER_FLOYD_STEINBERG = 0,
+	DITHER_STUCKI,
+	DITHER_BAYER,
+	DITHER_THRESHOLD,
+	DITHER_RANDOM,
+} DitherMode;
+
 typedef struct settings {
 	int num_ranges;
 	int size;
@@ -44,6 +52,8 @@ typedef struct settings {
 	int render_mode;
 	int dump_codepoints;
 	char *sequence;
+	DitherMode dither_mode;
+	float exposure;
 } FontSettings;
 
 static FontSettings s = {
@@ -55,6 +65,8 @@ static FontSettings s = {
 	.render_mode = 0,
 	.dump_codepoints = 0,
 	.sequence = NULL,
+	.dither_mode = DITHER_FLOYD_STEINBERG,
+	.exposure = 0.0f,
 };
 
 extern char* optarg;
@@ -145,13 +157,9 @@ static float *bgra_to_gray_buf(const uint8_t *buf, int pitch, int width, int row
 	return gray;
 }
 
-// Floyd-Steinberg dithering: quantise a float grayscale buffer to 1-bit and emit
-// each bit via enbit(). Error is diffused in-place using the standard FS kernel:
-//   forward:        7/16
-//   below-left:  3/16
-//   below:       5/16
-//   below-right: 1/16
-static void floyd_steinberg_to_bits(float *gray, int width, int rows) {
+// Floyd-Steinberg error diffusion to 1-bit via enbit().
+// Standard kernel:  forward 7/16, below-left 3/16, below 5/16, below-right 1/16
+static void dither_floyd_steinberg(float *gray, int width, int rows) {
 	for (int y = 0; y < rows; y++) {
 		for (int x = 0; x < width; x++) {
 			float old = gray[y * width + x];
@@ -171,6 +179,96 @@ static void floyd_steinberg_to_bits(float *gray, int width, int rows) {
 			}
 		}
 	}
+}
+
+// Stucki error diffusion — wider kernel than Floyd-Steinberg (divisor 42),
+// smoother gradients on larger glyphs.
+// Kernel (row offsets +1 and +2):
+//                    *   8/42  4/42
+//   2/42 4/42 8/42  4/42 2/42
+//   1/42 2/42 4/42  2/42 1/42
+static void dither_stucki(float *gray, int width, int rows) {
+	for (int y = 0; y < rows; y++) {
+		for (int x = 0; x < width; x++) {
+			float old = gray[y * width + x];
+			if (old < 0.0f) old = 0.0f;
+			if (old > 1.0f) old = 1.0f;
+			float newval = old >= 0.5f ? 1.0f : 0.0f;
+			enbit((uint8_t)(newval >= 0.5f ? 1 : 0));
+			float err = old - newval;
+#define S(dy, dx, w) \
+	do { \
+		int nx = x + (dx), ny = y + (dy); \
+		if (nx >= 0 && nx < width && ny < rows) \
+			gray[ny * width + nx] += err * (w) / 42.0f; \
+	} while (0)
+			S(0, 1, 8); S(0, 2, 4);
+			S(1,-2, 2); S(1,-1, 4); S(1, 0, 8); S(1, 1, 4); S(1, 2, 2);
+			S(2,-2, 1); S(2,-1, 2); S(2, 0, 4); S(2, 1, 2); S(2, 2, 1);
+#undef S
+		}
+	}
+}
+
+// Bayer ordered dithering (4×4 matrix).  No error propagation — each pixel is
+// compared against a spatially-varying threshold, giving a regular dot pattern.
+static void dither_bayer(float *gray, int width, int rows) {
+	static const float mat[4][4] = {
+		{  0.5f/16.0f,  8.5f/16.0f,  2.5f/16.0f, 10.5f/16.0f },
+		{ 12.5f/16.0f,  4.5f/16.0f, 14.5f/16.0f,  6.5f/16.0f },
+		{  3.5f/16.0f, 11.5f/16.0f,  1.5f/16.0f,  9.5f/16.0f },
+		{ 15.5f/16.0f,  7.5f/16.0f, 13.5f/16.0f,  5.5f/16.0f },
+	};
+	for (int y = 0; y < rows; y++)
+		for (int x = 0; x < width; x++)
+			enbit(gray[y * width + x] >= mat[y & 3][x & 3] ? 1 : 0);
+}
+
+// Simple threshold at 0.5 — no dithering, hard edge.
+static void dither_threshold(float *gray, int width, int rows) {
+	for (int y = 0; y < rows; y++)
+		for (int x = 0; x < width; x++)
+			enbit(gray[y * width + x] >= 0.5f ? 1 : 0);
+}
+
+// Random (stochastic) dithering — probability of white proportional to value.
+static void dither_random(float *gray, int width, int rows) {
+	for (int y = 0; y < rows; y++)
+		for (int x = 0; x < width; x++) {
+			float v = gray[y * width + x];
+			if (v <= 0.0f)      enbit(0);
+			else if (v >= 1.0f) enbit(1);
+			else                enbit((rand() % 256) < (int)(v * 256.0f) ? 1 : 0);
+		}
+}
+
+// Apply exposure bias then dispatch to the selected dithering algorithm.
+// exposure > 0 biases toward white; exposure < 0 biases toward black.
+static void apply_dithering(float *gray, int width, int rows) {
+	if (s.exposure != 0.0f) {
+		for (int i = 0; i < width * rows; i++) {
+			float v = gray[i] + s.exposure;
+			gray[i] = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
+		}
+	}
+	switch (s.dither_mode) {
+		case DITHER_STUCKI:           dither_stucki(gray, width, rows);           break;
+		case DITHER_BAYER:            dither_bayer(gray, width, rows);            break;
+		case DITHER_THRESHOLD:        dither_threshold(gray, width, rows);        break;
+		case DITHER_RANDOM:           dither_random(gray, width, rows);           break;
+		case DITHER_FLOYD_STEINBERG:
+		default:                      dither_floyd_steinberg(gray, width, rows);  break;
+	}
+}
+
+// Convert an 8-bit gray FreeType bitmap to a float buffer (0.0=black, 1.0=white).
+static float *gray8_to_float_buf(const uint8_t *buf, int pitch, int width, int rows) {
+	float *gray = (float *)malloc(width * rows * sizeof(float));
+	if (!gray) return NULL;
+	for (int y = 0; y < rows; y++)
+		for (int x = 0; x < width; x++)
+			gray[y * width + x] = buf[y * pitch + x] / 255.0f;
+	return gray;
 }
 
 // Bilinear downscale of a float grayscale buffer to dst_w x dst_h.
@@ -217,7 +315,7 @@ static void fit_dimensions(int src_w, int src_h, int max_w, int max_h,
 // sequence paths use identical quantisation logic.
 // Sets *out_w / *out_h to the actual pixel dimensions rendered (after scaling).
 static void render_bitmap_to_bits(FT_Bitmap *bitmap, int *out_w, int *out_h) {
-	int x, y, byte, rnd;
+	int x, y;
 	uint8_t bit;
 	*out_w = (int)bitmap->width;
 	*out_h = (int)bitmap->rows;
@@ -238,21 +336,21 @@ static void render_bitmap_to_bits(FT_Bitmap *bitmap, int *out_w, int *out_h) {
 			}
 			if (gray_buf) {
 				*out_w = dst_w; *out_h = dst_h;
-				floyd_steinberg_to_bits(gray_buf, dst_w, dst_h);
+				apply_dithering(gray_buf, dst_w, dst_h);
 				free(gray_buf);
 			}
 		}
 	} else if (s.render_mode == 1) {
-		for (y = 0; y < (int)bitmap->rows; y++)
-			for (x = 0; x < (int)bitmap->width; x++) {
-				byte = bitmap->buffer[y * bitmap->pitch + x];
-				if (byte == 0) { enbit(0); }
-				else { rnd = rand() % 256; enbit((rnd <= byte) ? 1 : 0); }
-			}
+		float *gray_buf = gray8_to_float_buf(bitmap->buffer, bitmap->pitch,
+		                                     bitmap->width, bitmap->rows);
+		if (gray_buf) {
+			apply_dithering(gray_buf, bitmap->width, bitmap->rows);
+			free(gray_buf);
+		}
 	} else {
 		for (y = 0; y < (int)bitmap->rows; y++)
 			for (x = 0; x < (int)bitmap->width; x++) {
-				byte = x / 8;
+				int byte = x / 8;
 				bit  = 0x80 >> (x & 7);
 				enbit(bitmap->buffer[y * bitmap->pitch + byte] & bit);
 			}
@@ -497,55 +595,95 @@ int shape_and_render_sequence(GFXglyph *table, glyph_name *names, FT_Face face,
 
 void print_usage(char* argv[]) {
 	fprintf(stderr,
-					"usage: %s -f FONTFILE [-s SIZE] [-v FONT_VARIANT_NAME] [RANGES]\n",
-					argv[0]);
-	fprintf(stderr, "  Using FreeType Version %d.%d.%d\n", FREETYPE_MAJOR,
-					FREETYPE_MINOR, FREETYPE_PATCH);
+	        "usage: %s -f FONTFILE [-s SIZE] [-v VARIANT] [-g] [-r H] [-W W]\n"
+	        "       %*s [-D MODE] [-e EXPOSURE] [-o OFFSET|-n OFFSET]\n"
+	        "       %*s [-S \"CP ...\" | RANGES]\n",
+	        argv[0], (int)strlen(argv[0]), "", (int)strlen(argv[0]), "");
+	fprintf(stderr, "  Using FreeType Version %d.%d.%d\n\n", FREETYPE_MAJOR,
+	        FREETYPE_MINOR, FREETYPE_PATCH);
 	fprintf(stderr, "  options:\n");
-	fprintf(stderr, "    -d Dump codepoints of specified font file.\n");
 	fprintf(stderr,
-					"    -f font file name to use (usually some .ttf or .otf file)\n");
+	        "    -f FILE   Font file to convert (.ttf or .otf)\n");
 	fprintf(stderr,
-					"    -s optional size of the generated pixel font (default is 12)\n");
-	fprintf(stderr, "    -v optional font variant name for the generated code "
-					"(avoiding name clashes)\n");
-	fprintf(stderr, "    -r optional value to override of the font height\n");
+	        "    -s N      Point size for the generated font (default: 12)\n");
 	fprintf(stderr,
-					"    -g optional value to use gray scale font rendering with "
-					"random dithering instead of monochromatic font rendering.\n");
-	fprintf(stderr, "    -o provide an optional offset applied to all extracted "
-					"unicode codepoints (can be negative with -n)\n");
-	fprintf(stderr, "    -n provide an optional negative offset applied to all "
-					"extracted unicode codepoints (higher priority than -o)\n");
+	        "    -v NAME   Variant name embedded in the C identifiers to avoid\n"
+	        "              name clashes when multiple fonts are included together\n");
 	fprintf(stderr,
-					"    -a provide an optional unicode character variant selector"
-					"(run with -d to view available variant selectors))\n");
-	fprintf(stderr, "    -S space/comma-separated hex codepoint sequence shaped by HarfBuzz\n"
-					"       e.g. -S \"1F1E9 1F1EA\"  →  German flag  (ignores RANGES)\n"
-					"            -S \"1F3F3 FE0F 200D 1F308\"  →  rainbow flag (ZWJ)\n");
-	fprintf(stderr, "    RANGES are pairs of values or a single last value (with "
-					"start=default): last|(first last)+\n");
-	fprintf(stderr, "      if there is no range, the default from ' '(32) to "
-					"'~'(126) will be used\n\n");
-	fprintf(stderr, "  examples:\n  =========\n");
-	fprintf(stderr, "    extract Japanese Hiragana, size 12:\n");
+	        "    -g        Grayscale / color-emoji mode:\n"
+	        "                BGRA bitmaps (CBDT/sbix color fonts) are composited\n"
+	        "                over white and Floyd-Steinberg dithered to 1-bit.\n"
+	        "                8-bit gray bitmaps use random dithering.\n"
+	        "              Required for NotoColorEmoji and similar color fonts.\n");
 	fprintf(stderr,
-					"      %s -f../../fonts/hiragana_font.otf -s 12 12353 12447\n",
-					argv[0]);
-	fprintf(stderr, "    extract with default range, size 18:\n");
-	fprintf(stderr, "      %s -f../../fonts/my_font.otf -s18\n", argv[0]);
-	fprintf(stderr, "    extract only until 'Z', size 22:\n");
-	fprintf(stderr, "      %s -f../../fonts/my_font.otf -s22 0x5a\n", argv[0]);
-	fprintf(
-		stderr,
-		"    extract Korean Hangul Jamo basic consonants and vowels, size 16:\n");
+	        "    -r N      Render-size override in pixels.  For bitmap-only fonts\n"
+	        "              (e.g. NotoColorEmoji) the fixed strike size is used and\n"
+	        "              -s is ignored; -r sets the yAdvance height reported in\n"
+	        "              the GFXfont struct.  Also used by -W to bound scaling.\n");
 	fprintf(stderr,
-					"      %s -f jamo_font.otf -v _Consonants_ -s 16 0x1100 0x1112\n",
-					argv[0]);
+	        "    -W N      Maximum rendered width in pixels.  When a glyph (after\n"
+	        "              any -r height limit) is still wider than N, it is scaled\n"
+	        "              down proportionally so width <= N.  Useful for wide\n"
+	        "              glyphs like landscape-orientation country flags.\n");
 	fprintf(stderr,
-					"      %s -f jamo_font.otf -v _Vowels_ -s 16 0x1161 0x1169 0x116d "
-					"0x116e 0x1172 0x1175\n",
-					argv[0]);
+	        "    -D MODE   Dithering algorithm used when -g is active (default: fs):\n"
+	        "                fs        Floyd-Steinberg error diffusion — smooth\n"
+	        "                          gradients, slight worm-pattern noise\n"
+	        "                stucki    Stucki error diffusion — wider kernel,\n"
+	        "                          sharper edges on larger glyphs\n"
+	        "                bayer     Bayer 4×4 ordered dithering — regular\n"
+	        "                          dot pattern, no error propagation\n"
+	        "                threshold Hard threshold at 0.5 — no dithering,\n"
+	        "                          cleanest edges for high-contrast art\n"
+	        "                random    Stochastic dithering — noise-like pattern\n");
+	fprintf(stderr,
+	        "    -e N      Exposure bias applied before dithering (range -1.0 to\n"
+	        "              1.0, default 0.0).  Positive values shift pixels toward\n"
+	        "              white (lower effective threshold); negative values shift\n"
+	        "              toward black.  Useful to compensate for OLED gamma.\n");
+	fprintf(stderr,
+	        "    -o N      Add N to every codepoint written into the output struct\n"
+	        "              (positive offset; overridden by -n)\n");
+	fprintf(stderr,
+	        "    -n N      Subtract N from every codepoint written into the output\n"
+	        "              struct (takes priority over -o)\n");
+	fprintf(stderr,
+	        "    -S \"...\"  Space- or comma-separated hex codepoints shaped by\n"
+	        "              HarfBuzz before rendering.  Handles ZWJ sequences, flag\n"
+	        "              regional-indicator pairs, ligatures, etc.  When -S is\n"
+	        "              given, RANGES are ignored.\n"
+	        "              e.g. -S \"1F1E9 1F1EA\"          German flag\n"
+	        "                   -S \"1F3F3 FE0F 200D 1F308\" rainbow flag (ZWJ)\n");
+	fprintf(stderr,
+	        "    -d        Dump all codepoints (and variant selectors) present in\n"
+	        "              the font to stderr, then exit without generating output.\n");
+	fprintf(stderr,
+	        "    RANGES    One or more first/last codepoint pairs (hex or decimal).\n"
+	        "              A single value is treated as the last codepoint with\n"
+	        "              first=' '(0x20).  Default range: 0x20–0x7E (printable\n"
+	        "              ASCII).  Ignored when -S is given.\n");
+	fprintf(stderr, "\n  examples:\n");
+	fprintf(stderr,
+	        "    # Printable ASCII, monochrome, size 14\n"
+	        "    %s -fmy_font.ttf -s14 0x20 0x7e > MyFont14pt.h\n\n", argv[0]);
+	fprintf(stderr,
+	        "    # Japanese Hiragana, size 15\n"
+	        "    %s -fhiragana.otf -s15 -v_Hiragana_ 0x3041 0x309f > Hiragana.h\n\n",
+	        argv[0]);
+	fprintf(stderr,
+	        "    # Korean Hangul Jamo consonants and vowels, size 16\n"
+	        "    %s -fjamo.otf -v_Consonants_ -s16 0x1100 0x1112 > Consonants.h\n"
+	        "    %s -fjamo.otf -v_Vowels_ -s16 0x1161 0x1169 0x116d 0x116e"
+	        " 0x1172 0x1175 > Vowels.h\n\n",
+	        argv[0], argv[0]);
+	fprintf(stderr,
+	        "    # Color emoji (smiley faces), grayscale+dither, max height 50 px\n"
+	        "    %s -fNotoColorEmoji.ttf -s20 -g -r50 -v_Emoji_ 0x1f600 0x1f64f"
+	        " > Emoji.h\n\n", argv[0]);
+	fprintf(stderr,
+	        "    # All country flags via HarfBuzz, scaled to fit 60x36 px\n"
+	        "    %s -fNotoColorEmoji.ttf -s20 -g -r36 -W60 -v_Flags_"
+	        " -S \"1F1E9 1F1EA ...\" > Flags.h\n", argv[0]);
 }
 
 int parse_args(int argc, char* argv[], char** fontFileName,
@@ -557,7 +695,7 @@ int parse_args(int argc, char* argv[], char** fontFileName,
 		return -1;
 	}
 
-	while ((opt = getopt(argc, argv, "dgs:f:v:r:o:n:S:W:")) != -1) {
+	while ((opt = getopt(argc, argv, "dgs:f:v:r:o:n:S:W:D:e:")) != -1) {
 		switch (opt) {
 		case 's':
 			if (!optarg) {
@@ -635,6 +773,38 @@ int parse_args(int argc, char* argv[], char** fontFileName,
 				return -1;
 			}
 			s.max_width = to_int(optarg);
+			break;
+
+		case 'D':
+			if (!optarg) {
+				printf("Missing value for argument D!\n");
+				return -1;
+			}
+			if (strcmp(optarg, "fs") == 0 || strcmp(optarg, "floyd") == 0) {
+				s.dither_mode = DITHER_FLOYD_STEINBERG;
+			} else if (strcmp(optarg, "stucki") == 0) {
+				s.dither_mode = DITHER_STUCKI;
+			} else if (strcmp(optarg, "bayer") == 0) {
+				s.dither_mode = DITHER_BAYER;
+			} else if (strcmp(optarg, "threshold") == 0) {
+				s.dither_mode = DITHER_THRESHOLD;
+			} else if (strcmp(optarg, "random") == 0) {
+				s.dither_mode = DITHER_RANDOM;
+			} else {
+				fprintf(stderr, "Unknown dithering mode '%s'. "
+				        "Valid options: fs, stucki, bayer, threshold, random\n", optarg);
+				return -1;
+			}
+			break;
+
+		case 'e':
+			if (!optarg) {
+				printf("Missing value for argument e!\n");
+				return -1;
+			}
+			s.exposure = strtof(optarg, NULL);
+			if (s.exposure < -1.0f) s.exposure = -1.0f;
+			if (s.exposure >  1.0f) s.exposure =  1.0f;
 			break;
 
 		case '?':
