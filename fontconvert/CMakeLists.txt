@@ -20,9 +20,18 @@ endif()
 
 # On Windows, bundle the getopt shim; POSIX provides its own.
 if(WIN32)
-  add_executable(fontconvert src/fontconvert.c src/getopt_win.c)
+  add_executable(fontconvert
+    src/fontconvert.c
+    src/cli.c
+    src/dither.c
+    src/font_render.c
+    src/getopt_win.c)
 else()
-  add_executable(fontconvert src/fontconvert.c)
+  add_executable(fontconvert
+    src/fontconvert.c
+    src/cli.c
+    src/dither.c
+    src/font_render.c)
 endif()
 
 # Include the subdirectory containing freetype_with_harfbuzz

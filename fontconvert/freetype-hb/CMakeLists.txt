@@ -38,6 +38,7 @@ ExternalProject_Add(
   -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
   -DFT_DISABLE_HARFBUZZ=TRUE
   -DFT_DISABLE_ZLIB=TRUE
+  -DFT_DISABLE_PNG=TRUE
   BUILD_BYPRODUCTS ${freetype_byproduct}
   )
 
@@ -75,8 +76,9 @@ else()
     URL https://www.freedesktop.org/software/harfbuzz/release/harfbuzz-2.6.7.tar.xz
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     CONFIGURE_COMMAND FREETYPE_CFLAGS="-I${freetype_without_harfbuzz_dir}/include/freetype2/" FREETYPE_LIBS="${freetype_without_harfbuzz_dir}/lib/${freetype_lib_name}" <SOURCE_DIR>/configure --prefix=<INSTALL_DIR> --enable-static=yes --enable-shared=no
-    BUILD_COMMAND make
-    INSTALL_COMMAND make install
+    BUILD_COMMAND make -C src libharfbuzz.la
+    INSTALL_COMMAND make -C src install
+    BUILD_BYPRODUCTS <INSTALL_DIR>/lib/${harfbuzz_lib_name}
   )
 
 endif()

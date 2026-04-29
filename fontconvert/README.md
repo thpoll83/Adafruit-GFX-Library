@@ -82,6 +82,10 @@ cd tests
 pytest -v
 ```
 
+The test suite always runs against `cmake-build-debug/fontconvert` (hardcoded in
+`tests/test_gfx_fonts.py`).  It does **not** test the installed binary.  To test
+a release build, point `FONTCONVERT` in that file at `cmake-build-release/fontconvert`.
+
 Test classes:
 
 | Class | What it covers |
