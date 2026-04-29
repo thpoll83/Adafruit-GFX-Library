@@ -1,10 +1,20 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include "dither.h"
 #include "types.h"
 
+// When non-NULL, enbit() writes to this buffer instead of stdout.
+static uint8_t *s_cap     = NULL;
+static int      s_cap_pos = 0;
+
 void enbit(uint8_t value) {
 	static uint8_t row = 0, sum = 0, bit = 0x80, firstCall = 1;
+	if (s_cap) {
+		if (value) s_cap[s_cap_pos >> 3] |= 0x80 >> (s_cap_pos & 7);
+		s_cap_pos++;
+		return;
+	}
 	if (value)
 		sum |= bit;
 	if (!(bit >>= 1)) {
@@ -24,7 +34,9 @@ void enbit(uint8_t value) {
 }
 
 // Convert a BGRA bitmap (straight alpha, as returned by FreeType for CBDT/color fonts)
-// to a float grayscale buffer (0.0=black, 1.0=white) composited over a white background.
+// to a float grayscale buffer (0.0=black, 1.0=white) composited over a black background.
+// Transparent pixels (alpha=0) become 0.0 so they stay dark on the OLED, matching the
+// wavy flag shape that NotoColorEmoji embeds as partial transparency around the flag.
 static float *bgra_to_gray_buf(const uint8_t *buf, int pitch, int width, int rows) {
 	float *gray = (float *)malloc(width * rows * sizeof(float));
 	if (!gray) return NULL;
@@ -35,10 +47,7 @@ static float *bgra_to_gray_buf(const uint8_t *buf, int pitch, int width, int row
 			float g = p[1] / 255.0f;
 			float r = p[2] / 255.0f;
 			float a = p[3] / 255.0f;
-			float ro = r * a + (1.0f - a);
-			float go = g * a + (1.0f - a);
-			float bo = b * a + (1.0f - a);
-			gray[y * width + x] = 0.2126f * ro + 0.7152f * go + 0.0722f * bo;
+			gray[y * width + x] = a * (0.2126f * r + 0.7152f * g + 0.0722f * b);
 		}
 	}
 	return gray;
@@ -180,6 +189,12 @@ static void dither_random(float *gray, int width, int rows) {
 }
 
 void apply_dithering(float *gray, int width, int rows) {
+	if (s.contrast != 1.0f) {
+		for (int i = 0; i < width * rows; i++) {
+			float v = (gray[i] - 0.5f) * s.contrast + 0.5f;
+			gray[i] = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
+		}
+	}
 	if (s.exposure != 0.0f) {
 		for (int i = 0; i < width * rows; i++) {
 			float v = gray[i] + s.exposure;
@@ -196,7 +211,115 @@ void apply_dithering(float *gray, int width, int rows) {
 	}
 }
 
-void render_bitmap_to_bits(FT_Bitmap *bitmap, int *out_w, int *out_h) {
+// For BGRA bitmaps: apply a two-sided border around the alpha content boundary.
+//
+// Outer ring: non-content pixels within t steps of a content pixel → lit.
+//   Creates a bright halo in the transparent background.
+//
+// Inner ring: content pixels within t steps of a non-content pixel → lit.
+//   Seals dithering gaps at the alpha boundary.  Near the wavy edge of a flag,
+//   bilinear scaling can produce semi-transparent pixels whose composited gray
+//   value falls just below the dithering threshold, leaving a dark fringe inside
+//   the alpha mask.  Forcing those pixels lit closes the gap between flag content
+//   and the outer halo (critical for white-background flags like JP and KR).
+static void alpha_content_outline(uint8_t *buf, FT_Bitmap *bitmap,
+                                  int out_w, int out_h, int t) {
+	int src_w = (int)bitmap->width;
+	int src_h = (int)bitmap->rows;
+
+	float *alpha = (float *)malloc(src_w * src_h * sizeof(float));
+	if (!alpha) return;
+	for (int y = 0; y < src_h; y++)
+		for (int x = 0; x < src_w; x++)
+			alpha[y * src_w + x] =
+				bitmap->buffer[y * bitmap->pitch + x * 4 + 3] > 0 ? 1.0f : 0.0f;
+
+	float *alpha_sc;
+	if (src_w != out_w || src_h != out_h) {
+		alpha_sc = scale_gray_buf(alpha, src_w, src_h, out_w, out_h);
+		free(alpha);
+		if (!alpha_sc) return;
+	} else {
+		alpha_sc = alpha;
+	}
+
+	// 1-bit content mask (threshold 0.5)
+	int n_bytes = (out_w * out_h + 7) / 8;
+	uint8_t *mask = (uint8_t *)calloc(n_bytes, 1);
+	if (!mask) { free(alpha_sc); return; }
+	for (int i = 0; i < out_w * out_h; i++)
+		if (alpha_sc[i] >= 0.5f)
+			mask[i >> 3] |= 0x80 >> (i & 7);
+	free(alpha_sc);
+
+	for (int y = 0; y < out_h; y++) {
+		for (int x = 0; x < out_w; x++) {
+			int idx = y * out_w + x;
+			int is_content = (mask[idx >> 3] >> (7 - (idx & 7))) & 1;
+			int near_other = 0;
+			for (int dy = -t; dy <= t && !near_other; dy++) {
+				for (int dx = -t; dx <= t && !near_other; dx++) {
+					if (dx == 0 && dy == 0) continue;
+					int nx = x + dx, ny = y + dy;
+					if (nx < 0 || nx >= out_w || ny < 0 || ny >= out_h) {
+						// bbox edge counts as non-content for the inner ring
+						if (is_content) near_other = 1;
+						continue;
+					}
+					int nidx = ny * out_w + nx;
+					int n_content = (mask[nidx >> 3] >> (7 - (nidx & 7))) & 1;
+					if (n_content != is_content) near_other = 1;
+				}
+			}
+			if (near_other)
+				buf[idx >> 3] |= 0x80 >> (idx & 7);
+		}
+	}
+	free(mask);
+}
+
+// Morphological dilation: any dark pixel within the t-pixel Chebyshev neighbourhood
+// of a lit pixel is set lit.  Original lit pixels are never cleared.
+// buf is modified in-place; a temporary copy is used as the source so that newly
+// set pixels do not influence the neighbourhood lookup of subsequent pixels.
+static void morphological_outline(uint8_t *buf, int w, int h, int t) {
+	int n_bytes = (w * h + 7) / 8;
+	uint8_t *src = (uint8_t *)malloc(n_bytes);
+	if (!src) return;
+	memcpy(src, buf, n_bytes);
+
+	for (int y = 0; y < h; y++) {
+		for (int x = 0; x < w; x++) {
+			int idx = y * w + x;
+			if ((src[idx >> 3] >> (7 - (idx & 7))) & 1)
+				continue;  // already lit
+			int found = 0;
+			for (int dy = -t; dy <= t && !found; dy++) {
+				for (int dx = -t; dx <= t && !found; dx++) {
+					if (dx == 0 && dy == 0) continue;
+					int nx = x + dx, ny = y + dy;
+					if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+					int nidx = ny * w + nx;
+					if ((src[nidx >> 3] >> (7 - (nidx & 7))) & 1)
+						found = 1;
+				}
+			}
+			if (found)
+				buf[idx >> 3] |= 0x80 >> (idx & 7);
+		}
+	}
+	free(src);
+}
+
+// Emit n_bits bits from packed-bits buffer buf via enbit().
+static void emit_buf(const uint8_t *buf, int n_bits) {
+	for (int i = 0; i < n_bits; i++)
+		enbit((buf[i >> 3] >> (7 - (i & 7))) & 1);
+}
+
+// Core render: populates *out_w/*out_h and streams bits via enbit() (or into
+// s_cap when capture mode is active).
+static void render_core(FT_Bitmap *bitmap, int *out_w, int *out_h) {
 	int x, y;
 	uint8_t bit;
 	*out_w = (int)bitmap->width;
@@ -237,4 +360,39 @@ void render_bitmap_to_bits(FT_Bitmap *bitmap, int *out_w, int *out_h) {
 				enbit(bitmap->buffer[y * bitmap->pitch + byte] & bit);
 			}
 	}
+}
+
+void render_bitmap_to_bits(FT_Bitmap *bitmap, int *out_w, int *out_h) {
+	if (s.outline <= 0) {
+		render_core(bitmap, out_w, out_h);
+		return;
+	}
+
+	// Allocate worst-case capture buffer (no scaling can increase size).
+	int max_bytes = ((int)bitmap->width * (int)bitmap->rows + 7) / 8;
+	if (max_bytes <= 0) {
+		render_core(bitmap, out_w, out_h);
+		return;
+	}
+
+	s_cap = (uint8_t *)calloc(max_bytes, 1);
+	if (!s_cap) {
+		render_core(bitmap, out_w, out_h);
+		return;
+	}
+	s_cap_pos = 0;
+
+	render_core(bitmap, out_w, out_h);
+
+	uint8_t *captured = s_cap;
+	int n_bits = *out_w * *out_h;
+	s_cap     = NULL;
+	s_cap_pos = 0;
+
+	if (bitmap->pixel_mode == FT_PIXEL_MODE_BGRA)
+		alpha_content_outline(captured, bitmap, *out_w, *out_h, s.outline);
+	else
+		morphological_outline(captured, *out_w, *out_h, s.outline);
+	emit_buf(captured, n_bits);
+	free(captured);
 }

@@ -53,7 +53,7 @@ int range_count(const ch_range *range) {
 void print_usage(char *argv[]) {
 	fprintf(stderr,
 	        "usage: %s -f FONTFILE [-s SIZE] [-v VARIANT] [-g] [-r H] [-W W]\n"
-	        "       %*s [-D MODE] [-e EXPOSURE] [-o OFFSET|-n OFFSET]\n"
+	        "       %*s [-D MODE] [-e EXPOSURE] [-c CONTRAST] [-o OFFSET|-n OFFSET]\n"
 	        "       %*s [-S \"G[,G]...\" | RANGES]\n"
 	        "       where G = space-separated hex codepoints for one glyph\n",
 	        argv[0], (int)strlen(argv[0]), "", (int)strlen(argv[0]), "");
@@ -101,6 +101,12 @@ void print_usage(char *argv[]) {
 	        "              white (lower effective threshold); negative values shift\n"
 	        "              toward black.  Useful to compensate for OLED gamma.\n");
 	fprintf(stderr,
+	        "    -c N      Contrast multiplier applied before dithering (default:\n"
+	        "              1.0 = unchanged, 0.0 = flat gray, >1.0 = more contrast).\n"
+	        "              Stretches gray values around 0.5: output =\n"
+	        "              (input - 0.5) * N + 0.5, clamped to [0, 1].  Applied\n"
+	        "              before -e.  Useful to sharpen washed-out flag colours.\n");
+	fprintf(stderr,
 	        "    -o N      Add N to every codepoint written into the output struct\n"
 	        "              (positive offset; overridden by -n)\n");
 	fprintf(stderr,
@@ -119,6 +125,16 @@ void print_usage(char *argv[]) {
 	        "                   -S \"1F1E9 1F1EA, 1F1EB 1F1F7\"     DE + FR flags\n"
 	        "                   -S \"1F3F3 FE0F 200D 1F308\"         rainbow flag (ZWJ)\n"
 	        "                   -S \"1F600, 1F601, 1F602\"           3 separate emoji\n");
+	fprintf(stderr,
+	        "    -O N      Outline thickness in pixels (default: 0 = disabled).\n"
+	        "              Morphological dilation: every dark pixel within N pixels\n"
+	        "              (Chebyshev distance) of any lit pixel is set lit.  The\n"
+	        "              original lit pixels are preserved; the result is a lit\n"
+	        "              halo that follows the actual glyph shape rather than its\n"
+	        "              bounding box.  Useful for glyphs with fine dark features\n"
+	        "              (e.g. thin stripes in country flags) that need thickening\n"
+	        "              to remain visible at small display sizes.  Glyph\n"
+	        "              dimensions are not changed.\n");
 	fprintf(stderr,
 	        "    -d        Dump all codepoints (and variant selectors) present in\n"
 	        "              the font to stderr, then exit without generating output.\n");
@@ -159,7 +175,7 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 	if (argc <= 1)
 		return -1;
 
-	while ((opt = getopt(argc, argv, "dgs:f:v:r:o:n:S:W:D:e:")) != -1) {
+	while ((opt = getopt(argc, argv, "dgs:f:v:r:o:n:S:W:D:e:c:O:")) != -1) {
 		switch (opt) {
 		case 's':
 			if (!optarg) { printf("Missing value for argument s!\n"); return -1; }
@@ -237,6 +253,18 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 			s.exposure = strtof(optarg, NULL);
 			if (s.exposure < -1.0f) s.exposure = -1.0f;
 			if (s.exposure >  1.0f) s.exposure =  1.0f;
+			break;
+
+		case 'c':
+			if (!optarg) { printf("Missing value for argument c!\n"); return -1; }
+			s.contrast = strtof(optarg, NULL);
+			if (s.contrast < 0.0f) s.contrast = 0.0f;
+			break;
+
+		case 'O':
+			if (!optarg) { printf("Missing value for argument O!\n"); return -1; }
+			s.outline = to_int(optarg);
+			if (s.outline < 0) s.outline = 0;
 			break;
 
 		case '?':

@@ -532,6 +532,391 @@ class TestFlagDitheringVariants:
 
 
 # ---------------------------------------------------------------------------
+# Test: outline option (-O N)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(not DEJAVU.exists(), reason="DejaVuSans not installed")
+class TestOutline:
+    """
+    Tests the -O N outline option.
+
+    For BGRA (color emoji/flags): forces the inner N-pixel ring of every content
+    pixel (alpha > 0) to lit, creating a bright frame around the emoji regardless
+    of what colour its edge dithered to.
+    For mono/gray text: morphological dilation — dark pixels adjacent to lit pixels
+    become lit.  Original lit pixels are never cleared in either mode.
+
+    glyph_to_rows convention (matches physical OLED): bit=1 (lit) → pixel=255,
+    bit=0 (dark/off) → pixel=0.
+    """
+
+    # 'M' (0x4D) at size 20 has clear strokes and surrounding dark background
+    # pixels — ideal for testing that the dilation halo appears correctly.
+    _CP = '0x4D'
+
+    def _outline(self, thickness):
+        return h_to_font(run_fontconvert(
+            f'-f{DEJAVU}', '-s20', '-v_Outline_',
+            f'-O{thickness}', self._CP, self._CP
+        ))
+
+    def _plain(self):
+        return h_to_font(run_fontconvert(
+            f'-f{DEJAVU}', '-s20', '-v_Plain_',
+            self._CP, self._CP
+        ))
+
+    def _rows(self, font):
+        return glyph_to_rows(font['glyphs'][0], font['bitmap'], scale=1)
+
+    def test_dimensions_unchanged(self):
+        """Dilation must not alter glyph width or height."""
+        g_out   = self._outline(1)['glyphs'][0]
+        g_plain = self._plain()['glyphs'][0]
+        assert g_out['width']  == g_plain['width'],  "-O 1 changed glyph width"
+        assert g_out['height'] == g_plain['height'], "-O 1 changed glyph height"
+
+    def test_original_lit_pixels_preserved(self):
+        """Every pixel lit in the plain render must remain lit after -O 1."""
+        rows_p = self._rows(self._plain())
+        rows_o = self._rows(self._outline(1))
+        h, w = len(rows_p), len(rows_p[0])
+        for y in range(h):
+            for x in range(w):
+                if rows_p[y][x] == 255:  # lit in plain (255 = white/lit on OLED)
+                    assert rows_o[y][x] == 255, \
+                        f"Pixel ({x},{y}) was lit in plain but cleared by -O 1"
+
+    def test_dark_neighbors_of_lit_become_lit(self):
+        """Dark pixels adjacent (8-connected) to lit pixels must be lit after -O 1."""
+        plain   = self._plain()
+        outline = self._outline(1)
+        g = plain['glyphs'][0]
+        rows_p = self._rows(plain)
+        rows_o = glyph_to_rows(g, outline['bitmap'], scale=1)
+        h, w = g['height'], g['width']
+        checked = 0
+        for y in range(h):
+            for x in range(w):
+                if rows_p[y][x] != 0:  # lit in plain — skip (0 = dark/off on OLED)
+                    continue
+                # Dark in plain — does any 8-neighbour in plain have a lit pixel?
+                adjacent = False
+                for dy in (-1, 0, 1):
+                    for dx in (-1, 0, 1):
+                        if dy == 0 and dx == 0:
+                            continue
+                        ny, nx = y + dy, x + dx
+                        if 0 <= ny < h and 0 <= nx < w and rows_p[ny][nx] == 255:
+                            adjacent = True
+                if adjacent:
+                    assert rows_o[y][x] == 255, \
+                        f"Dark pixel ({x},{y}) adjacent to lit content was not set by -O 1"
+                    checked += 1
+        assert checked > 0, "No dark-adjacent-to-lit pixels found — test glyph too small?"
+
+    def test_outline_expands_lit_region(self):
+        """The outline version must have strictly more lit pixels than plain."""
+        rows_p = self._rows(self._plain())
+        rows_o = self._rows(self._outline(1))
+        lit_plain   = sum(px == 255 for row in rows_p for px in row)
+        lit_outline = sum(px == 255 for row in rows_o for px in row)
+        assert lit_outline > lit_plain, \
+            f"Outline ({lit_outline} lit) has no more pixels than plain ({lit_plain} lit)"
+
+    def test_larger_thickness_expands_more(self):
+        """O2 must produce at least as many lit pixels as O1."""
+        rows_1 = self._rows(self._outline(1))
+        rows_2 = self._rows(self._outline(2))
+        lit_1 = sum(px == 255 for row in rows_1 for px in row)
+        lit_2 = sum(px == 255 for row in rows_2 for px in row)
+        assert lit_2 >= lit_1, \
+            f"-O 2 ({lit_2} lit) has fewer lit pixels than -O 1 ({lit_1} lit)"
+
+    def test_zero_outline_is_noop(self):
+        """-O 0 must produce the identical bitmap as no -O flag."""
+        font_plain = self._plain()
+        font_zero  = h_to_font(run_fontconvert(
+            f'-f{DEJAVU}', '-s20', '-v_Zero_',
+            '-O0', self._CP, self._CP
+        ))
+        g_plain = font_plain['glyphs'][0]
+        g_zero  = font_zero['glyphs'][0]
+        assert g_plain['width']  == g_zero['width']
+        assert g_plain['height'] == g_zero['height']
+        plain_bits = font_plain['bitmap'][
+            g_plain['bitmapOffset']:
+            g_plain['bitmapOffset'] + (g_plain['width'] * g_plain['height'] + 7) // 8
+        ]
+        zero_bits = font_zero['bitmap'][
+            g_zero['bitmapOffset']:
+            g_zero['bitmapOffset'] + (g_zero['width'] * g_zero['height'] + 7) // 8
+        ]
+        assert list(plain_bits) == list(zero_bits), \
+            "-O 0 produced a different bitmap from no -O flag"
+
+    def test_outline_contact_sheet(self, tmp_path):
+        """Write a contact sheet PNG of outlined A–Z for visual inspection."""
+        font = h_to_font(run_fontconvert(
+            f'-f{DEJAVU}', '-s20', '-v_OutlineAZ_',
+            '-O1', '0x41', '0x5a'
+        ))
+        out = str(tmp_path / "outline_az.png")
+        w, h = make_sheet_png(font, out, scale=4, cols=8)
+        assert Path(out).exists()
+        assert w > 0 and h > 0
+
+    @pytest.mark.skipif(not NOTO_COLOR.exists(),
+                        reason="NotoColorEmoji font not present")
+    def test_flag_outline_preserves_and_expands(self):
+        """German flag with -O 1: all plain-lit pixels preserved, more lit overall."""
+        plain   = h_to_font(run_fontconvert(
+            f'-f{NOTO_COLOR}', '-s20', '-g', '-r36', '-W60',
+            '-v_FlagDE_', '-S', '1F1E9 1F1EA'
+        ))
+        outline = h_to_font(run_fontconvert(
+            f'-f{NOTO_COLOR}', '-s20', '-g', '-r36', '-W60',
+            '-O1', '-v_FlagDE_', '-S', '1F1E9 1F1EA'
+        ))
+        assert len(plain['glyphs']) >= 1 and len(outline['glyphs']) >= 1
+        g = plain['glyphs'][0]
+        assert g['width'] == outline['glyphs'][0]['width']
+        assert g['height'] == outline['glyphs'][0]['height']
+        rows_p = glyph_to_rows(g,                    plain['bitmap'],   scale=1)
+        rows_o = glyph_to_rows(outline['glyphs'][0], outline['bitmap'], scale=1)
+        lit_p = sum(px == 255 for row in rows_p for px in row)
+        lit_o = sum(px == 255 for row in rows_o for px in row)
+        # All plain-lit pixels must remain lit
+        for y in range(g['height']):
+            for x in range(g['width']):
+                if rows_p[y][x] == 255:
+                    assert rows_o[y][x] == 255, \
+                        f"Flag pixel ({x},{y}) lit in plain was cleared by -O 1"
+        # The outline version must have at least as many lit pixels
+        assert lit_o >= lit_p, \
+            f"Flag outline ({lit_o} lit) has fewer lit pixels than plain ({lit_p} lit)"
+
+
+# ---------------------------------------------------------------------------
+# Test: outline PNG contact sheets for visual inspection
+# ---------------------------------------------------------------------------
+
+_OUTLINE_THICKNESSES = [0, 1, 2, 3]
+
+
+@pytest.mark.skipif(not DEJAVU.exists(), reason="DejaVuSans not installed")
+class TestOutlinePNGs:
+    """
+    Writes contact-sheet PNGs to font_test_output/ for every outline thickness
+    variant so the effect can be inspected visually.
+
+    Visual inspection:
+        cd AdafruitGFX/fontconvert/tests
+        pytest -v -k TestOutlinePNGs
+        # → font_test_output/outline_O{N}_az_sheet.png  (N = 0..3)
+        # → font_test_output/…_O{N}_flags_sheet.png      (if NotoColorEmoji present)
+    """
+
+    @pytest.mark.parametrize(
+        "thickness", _OUTLINE_THICKNESSES,
+        ids=[f"O{t}" for t in _OUTLINE_THICKNESSES],
+    )
+    def test_mono_az_sheet(self, thickness):
+        """A–Z monochrome at each outline thickness → font_test_output/."""
+        font = h_to_font(run_fontconvert(
+            f'-f{DEJAVU}', '-s20', '-v_Outline_',
+            f'-O{thickness}', '0x41', '0x5a'
+        ))
+        out_dir = Path(__file__).parent / 'font_test_output'
+        out_dir.mkdir(exist_ok=True)
+        path = out_dir / f'outline_O{thickness}_az_sheet.png'
+        w, h = make_sheet_png(font, str(path), scale=4, cols=8)
+        assert path.exists() and w > 0 and h > 0
+        print(f"\n  {path.name}  ({w}×{h} px)")
+
+    @pytest.mark.parametrize(
+        "thickness", _OUTLINE_THICKNESSES,
+        ids=[f"O{t}" for t in _OUTLINE_THICKNESSES],
+    )
+    def test_gray_az_sheet(self, thickness):
+        """A–Z grayscale at each outline thickness → font_test_output/."""
+        font = h_to_font(run_fontconvert(
+            f'-f{DEJAVU}', '-s20', '-g', '-v_OutlineGray_',
+            f'-O{thickness}', '0x41', '0x5a'
+        ))
+        out_dir = Path(__file__).parent / 'font_test_output'
+        out_dir.mkdir(exist_ok=True)
+        path = out_dir / f'outline_gray_O{thickness}_az_sheet.png'
+        w, h = make_sheet_png(font, str(path), scale=4, cols=8)
+        assert path.exists() and w > 0 and h > 0
+        print(f"\n  {path.name}  ({w}×{h} px)")
+
+    @pytest.mark.skipif(not NOTO_COLOR.exists(),
+                        reason="NotoColorEmoji font not present")
+    @pytest.mark.parametrize(
+        "thickness", _OUTLINE_THICKNESSES,
+        ids=[f"O{t}" for t in _OUTLINE_THICKNESSES],
+    )
+    def test_flags_sheet(self, thickness):
+        """All country flags at each outline thickness → font_test_output/."""
+        seq = _all_flags_sequence()
+        font = h_to_font(run_fontconvert(
+            f'-f{NOTO_COLOR}', '-s20', '-g', '-r36', '-W60',
+            f'-O{thickness}', '-v_Flags_', '-S', seq
+        ))
+        assert len(font['glyphs']) == len(_FLAG_CODES), \
+            f"[O{thickness}] Expected {len(_FLAG_CODES)} flags, got {len(font['glyphs'])}"
+        out_dir = Path(__file__).parent / 'font_test_output'
+        out_dir.mkdir(exist_ok=True)
+        path = out_dir / f'{font["name"]}_O{thickness}_flags_sheet.png'
+        w, h = make_sheet_png(font, str(path), scale=4, cols=20)
+        assert path.exists() and w > 0 and h > 0
+        print(f"\n  {path.name}  ({w}×{h} px, {len(font['glyphs'])} flags)")
+
+
+# ---------------------------------------------------------------------------
+# Test: lang_layer flags (from lang_lut.h) × outline thicknesses
+# ---------------------------------------------------------------------------
+
+# Country codes extracted from enum lang_layer in
+# qmk_firmware/keyboards/handwired/polykybd/lang/lang_lut.h
+# Each LANG_XXYY entry uses YY as the ISO 3166-1 alpha-2 country code.
+_LANG_LAYER_COUNTRIES = [
+    'US',  # LANG_ENUS
+    'DE',  # LANG_DEDE
+    'FR',  # LANG_FRFR
+    'ES',  # LANG_ESES
+    'PT',  # LANG_PTPT
+    'IT',  # LANG_ITIT
+    'TR',  # LANG_TRTR
+    'KR',  # LANG_KOKR
+    'JP',  # LANG_JAJP
+    'SA',  # LANG_ARSA
+    'GR',  # LANG_ELGR
+    'UA',  # LANG_UKUA
+    'RU',  # LANG_RURU
+    'BY',  # LANG_BEBY
+    'KZ',  # LANG_KKKZ
+    'BG',  # LANG_BGBG
+    'PL',  # LANG_PLPL
+    'RO',  # LANG_RORO
+    'CN',  # LANG_ZHCN
+    'NL',  # LANG_NLNL
+    'IL',  # LANG_HEIL
+    'SE',  # LANG_SVSE
+    'FI',  # LANG_FIFI
+    'NO',  # LANG_NNNO
+    'DK',  # LANG_DADK
+    'HU',  # LANG_HUHU
+    'CZ',  # LANG_CSCZ
+]
+
+_LANG_FLAG_SEQUENCE = ', '.join(_flag_seq(cc) for cc in _LANG_LAYER_COUNTRIES)
+
+_LANG_OUTLINE_THICKNESSES = [0, 1, 2]
+_LANG_CONTRASTS = [0.5, 1.0, 1.5, 2.0]
+
+
+@pytest.mark.skipif(not NOTO_COLOR.exists(),
+                    reason="NotoColorEmoji font not present at "
+                           f"{NOTO_COLOR}")
+class TestLangLayerFlags:
+    """
+    Renders all country flags from the lang_layer enum in lang_lut.h for three
+    outline thicknesses (0, 1, 2) and writes a contact-sheet PNG for each to
+    font_test_output/ for visual comparison.
+
+    Flags correspond to the 27 keyboard language layers: US, DE, FR, ES, PT,
+    IT, TR, KR, JP, SA, GR, UA, RU, BY, KZ, BG, PL, RO, CN, NL, IL, SE, FI,
+    NO, DK, HU, CZ.
+
+    Visual inspection:
+        cd AdafruitGFX/fontconvert/tests
+        pytest -v -k TestLangLayerFlags
+        # → font_test_output/lang_flags_O{N}_sheet.png  (N = 0, 1, 2)
+    """
+
+    @pytest.mark.parametrize(
+        "thickness", _LANG_OUTLINE_THICKNESSES,
+        ids=[f"O{t}" for t in _LANG_OUTLINE_THICKNESSES],
+    )
+    def test_lang_flags_sheet(self, thickness):
+        """All lang_layer flags at the given outline thickness → font_test_output/."""
+        extra = [f'-O{thickness}'] if thickness > 0 else []
+        font = h_to_font(run_fontconvert(
+            f'-f{NOTO_COLOR}', '-s20', '-g', '-r36', '-W60',
+            *extra, '-v_LangFlags_', '-S', _LANG_FLAG_SEQUENCE,
+        ))
+        assert len(font['glyphs']) == len(_LANG_LAYER_COUNTRIES), (
+            f"[O{thickness}] Expected {len(_LANG_LAYER_COUNTRIES)} flags, "
+            f"got {len(font['glyphs'])}"
+        )
+        blank = [
+            _LANG_LAYER_COUNTRIES[i]
+            for i, g in enumerate(font['glyphs'])
+            if g['width'] <= 0 or g['height'] <= 0 or not any(
+                font['bitmap'][
+                    g['bitmapOffset']:
+                    g['bitmapOffset'] + (g['width'] * g['height'] + 7) // 8
+                ]
+            )
+        ]
+        assert not blank, f"[O{thickness}] Flags with empty bitmaps: {blank}"
+
+        out_dir = Path(__file__).parent / 'font_test_output'
+        out_dir.mkdir(exist_ok=True)
+        path = out_dir / f'lang_flags_O{thickness}_sheet.png'
+        w, h = make_sheet_png(font, str(path), scale=4, cols=9)
+        assert path.exists() and w > 0 and h > 0
+        print(f"\n  {path.name}  ({w}×{h} px, {len(font['glyphs'])} flags)")
+
+    @pytest.mark.parametrize(
+        "dither,exposure",
+        _FLAG_VARIANTS,
+        ids=[f"{d}_e{e:+.1f}" for d, e in _FLAG_VARIANTS],
+    )
+    def test_lang_flags_O1_dither_sheet(self, dither, exposure):
+        """All lang_layer flags with outline=1, each dither mode × exposure → font_test_output/."""
+        font = h_to_font(run_fontconvert(
+            f'-f{NOTO_COLOR}', '-s20', '-g', '-r36', '-W60',
+            '-O1', f'-D{dither}', f'-e{exposure:.2f}',
+            '-v_LangFlags_', '-S', _LANG_FLAG_SEQUENCE,
+        ))
+        assert len(font['glyphs']) == len(_LANG_LAYER_COUNTRIES), (
+            f"[O1 {dither} e{exposure:+.1f}] Expected {len(_LANG_LAYER_COUNTRIES)} flags, "
+            f"got {len(font['glyphs'])}"
+        )
+        out_dir = Path(__file__).parent / 'font_test_output'
+        out_dir.mkdir(exist_ok=True)
+        path = out_dir / f'lang_flags_O1_{dither}_e{exposure:+.1f}_sheet.png'
+        w, h = make_sheet_png(font, str(path), scale=4, cols=9)
+        assert path.exists() and w > 0 and h > 0
+        print(f"\n  {path.name}  ({w}×{h} px)")
+
+    @pytest.mark.parametrize(
+        "contrast", _LANG_CONTRASTS,
+        ids=[f"c{c:.1f}" for c in _LANG_CONTRASTS],
+    )
+    def test_lang_flags_O1_contrast_sheet(self, contrast):
+        """All lang_layer flags with outline=1, each contrast value → font_test_output/."""
+        font = h_to_font(run_fontconvert(
+            f'-f{NOTO_COLOR}', '-s20', '-g', '-r36', '-W60',
+            '-O1', f'-c{contrast:.2f}',
+            '-v_LangFlags_', '-S', _LANG_FLAG_SEQUENCE,
+        ))
+        assert len(font['glyphs']) == len(_LANG_LAYER_COUNTRIES), (
+            f"[O1 c{contrast:.1f}] Expected {len(_LANG_LAYER_COUNTRIES)} flags, "
+            f"got {len(font['glyphs'])}"
+        )
+        out_dir = Path(__file__).parent / 'font_test_output'
+        out_dir.mkdir(exist_ok=True)
+        path = out_dir / f'lang_flags_O1_c{contrast:.1f}_sheet.png'
+        w, h = make_sheet_png(font, str(path), scale=4, cols=9)
+        assert path.exists() and w > 0 and h > 0
+        print(f"\n  {path.name}  ({w}×{h} px)")
+
+
+# ---------------------------------------------------------------------------
 # Test: all GFXfont headers in the firmware fonts tree
 # ---------------------------------------------------------------------------
 

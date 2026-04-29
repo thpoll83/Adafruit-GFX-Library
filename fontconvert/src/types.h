@@ -20,6 +20,8 @@ typedef struct settings {
 	char *sequence;
 	DitherMode dither_mode;
 	float exposure;
+	float contrast;
+	int outline;
 } FontSettings;
 
 typedef struct ch_range {

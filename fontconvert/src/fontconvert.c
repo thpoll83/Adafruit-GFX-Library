@@ -57,6 +57,8 @@ FontSettings s = {
 	.sequence = NULL,
 	.dither_mode = DITHER_FLOYD_STEINBERG,
 	.exposure = 0.0f,
+	.contrast = 1.0f,
+	.outline = 0,
 };
 
 int main(int argc, char *argv[]) {

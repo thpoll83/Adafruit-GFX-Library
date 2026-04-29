@@ -145,10 +145,14 @@ def parse_h_file(path: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def glyph_to_rows(glyph: dict, bitmap: bytes, scale: int = 4):
-    """Return a list-of-lists (scanlines × pixel values 0/255) for one glyph."""
+    """Return a list-of-lists (scanlines × pixel values 0/255) for one glyph.
+
+    Pixel encoding mirrors the physical OLED: bit=1 (lit) → 255 (white),
+    bit=0 (dark/off) → 0 (black).
+    """
     w, h = glyph['width'], glyph['height']
     if w <= 0 or h <= 0:
-        return [[255] * scale] * scale  # 1×1 upscaled white tile
+        return [[0] * scale] * scale  # 1×1 upscaled dark tile
 
     offset = glyph['bitmapOffset']
     rows = []
@@ -160,8 +164,8 @@ def glyph_to_rows(glyph: dict, bitmap: bytes, scale: int = 4):
             bit_idx  = gy * w + gx
             byte_pos = offset + bit_idx // 8
             bit_pos  = 7 - (bit_idx % 8)
-            pixel = 0 if (byte_pos < len(bitmap) and
-                          (bitmap[byte_pos] >> bit_pos) & 1) else 255
+            pixel = 255 if (byte_pos < len(bitmap) and
+                            (bitmap[byte_pos] >> bit_pos) & 1) else 0
             row.append(pixel)
         rows.append(row)
     return rows
@@ -189,8 +193,8 @@ def make_sheet_png(font: dict, path: str, scale: int = 4, cols: int = 16) -> tup
     img_w  = cols  * cell_w
     img_h  = n_rows * cell_h
 
-    # Build pixel buffer: list of lists, initialised to mid-grey
-    canvas = [[200] * img_w for _ in range(img_h)]
+    # Build pixel buffer: list of lists, initialised to dark grey (OLED frame colour)
+    canvas = [[40] * img_w for _ in range(img_h)]
 
     for i, g in enumerate(glyphs):
         col, row  = i % cols, i // cols
