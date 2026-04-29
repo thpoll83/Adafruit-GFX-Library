@@ -57,6 +57,7 @@ find_package(PNG REQUIRED)
 TARGET_LINK_LIBRARIES(fontconvert freetype)
 TARGET_LINK_LIBRARIES(fontconvert hb)
 TARGET_LINK_LIBRARIES(fontconvert PNG::PNG)
+TARGET_LINK_LIBRARIES(fontconvert m)
 
 target_include_directories(fontconvert PRIVATE ${FREETYPE_DIR}/include/freetype2)
 target_include_directories(fontconvert PRIVATE ${HARFBUZZ_DIR}/include/harfbuzz)

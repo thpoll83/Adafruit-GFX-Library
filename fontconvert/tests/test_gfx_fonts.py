@@ -79,6 +79,155 @@ FIXTURE_BASE = Path(__file__).parent.parent.parent.parent / \
 FONTS_ROOT   = Path(__file__).parent.parent.parent.parent / \
                "qmk_firmware/keyboards/handwired/polykybd/base/fonts"
 
+_POLYKYBD_DIR = FONTS_ROOT.parent.parent  # .../polykybd/
+
+
+def _fc(*args):
+    """Expand '-ffonts/...' to absolute font path for _GENERATED_FONT_ARGS."""
+    return [
+        ('-f' + str(_POLYKYBD_DIR / a[2:])) if a.startswith('-ffonts/') else a
+        for a in args
+    ]
+
+
+_GENERATED_FONT_ARGS = {
+    '0NotoSans_Regular_Base_14pt.h':
+        _fc('-ffonts/noto-sans/NotoSans-Regular.ttf', '-s14',
+            '-v', '_Base_', '0x20', '0x7e'),
+    '1NotoSans_Regular_SupAndExtA_14pt.h':
+        _fc('-ffonts/noto-sans/NotoSans-Regular.ttf', '-s14', '-r44',
+            '-v', '_SupAndExtA_', '0xa1', '0x17e'),
+    'NotoSans_Regular_LetterMod_14pt.h':
+        _fc('-ffonts/noto-sans/NotoSans-Regular.ttf', '-s14',
+            '-v', '_LetterMod_', '0x2c6', '0x2dd'),
+    'NotoSans_Regular_Greek_14pt.h':
+        _fc('-ffonts/noto-sans/NotoSans-Regular.ttf', '-s14',
+            '-v', '_Greek_', '0x384', '0x385', '0x391', '0x3a1', '0x3a3', '0x3c9'),
+    'NotoSans_Regular_Cyrillic_16pt.h':
+        _fc('-ffonts/noto-sans/NotoSans-Regular.ttf', '-s16',
+            '-v', '_Cyrillic_', '0x401', '0x46b', '0x490', '0x4bb', '0x4d8', '0x4e9'),
+    'NotoSans_Medium_HebrewDots_22pt.h':
+        _fc('-ffonts/Noto_Sans_Hebrew/static/NotoSansHebrew-Medium.ttf', '-s22',
+            '-v', '_HebrewDots_', '0x5b0', '0x5c7'),
+    'NotoSans_Medium_Hebrew_16pt.h':
+        _fc('-ffonts/Noto_Sans_Hebrew/static/NotoSansHebrew-Medium.ttf', '-s16',
+            '-v', '_Hebrew_', '0x5d0', '0x5ea', '0x5f0', '0x5f4'),
+    'NotoSans_Regular_SZ_14pt.h':
+        _fc('-ffonts/noto-sans/NotoSans-Regular.ttf', '-s14', '-r44',
+            '-v', '_SZ_', '0x1E9E', '0x1E9E'),
+    '7NotoSansJP_Regular_KangXi_15pt.h':
+        _fc('-ffonts/noto-sans-jp/NotoSansJP-Regular.ttf', '-s15',
+            '-v', '_KangXi_',
+            '0x2f00', '0x2f00', '0x2f08', '0x2f08', '0x2f17', '0x2f18',
+            '0x2f1d', '0x2f25', '0x2f2b', '0x2f2d', '0x2f38', '0x2f3f',
+            '0x2f47', '0x2f4a', '0x2f54', '0x2f55', '0x2f65', '0x2f65',
+            '0x2f75', '0x2f75', '0x2fa6', '0x2fa6'),
+    '7NotoSansJP_Regular_Cjk4e2d_15pt.h':
+        _fc('-ffonts/noto-sans-jp/NotoSansJP-Regular.ttf', '-s15',
+            '-v', '_Cjk4e2d_', '0x4e2d', '0x4e2d'),
+    '7NotoSansJP_Regular_Cjk5eff_15pt.h':
+        _fc('-ffonts/noto-sans-jp/NotoSansJP-Regular.ttf', '-s15',
+            '-v', '_Cjk5eff_', '0x5eff', '0x5eff'),
+    '7NotoSansJP_Regular_Cjk96e3_15pt.h':
+        _fc('-ffonts/noto-sans-jp/NotoSansJP-Regular.ttf', '-s15',
+            '-v', '_Cjk96e3_', '0x96e3', '0x96e3'),
+    'NotoSansJP_Regular_Hiragana_15pt.h':
+        _fc('-ffonts/noto-sans-jp/NotoSansJP-Regular.ttf', '-s15',
+            '-v', '_Hiragana_', '0x3041', '0x3096', '0x3099', '0x309f'),
+    'NotoSansJP_Regular_Punct_15pt.h':
+        _fc('-ffonts/noto-sans-jp/NotoSansJP-Regular.ttf', '-s15',
+            '-v', '_Punct_', '0x3001', '0x3002', '0x3008', '0x3011'),
+    'NotoSansJP_Regular_Punct2_15pt.h':
+        _fc('-ffonts/noto-sans-jp/NotoSansJP-Regular.ttf', '-s15',
+            '-v', '_Punct2_', '0x30fb', '0x30fc'),
+    'NotoSerifKR_Regular_Vowels_21pt.h':
+        _fc('-ffonts/noto-serif-kr/NotoSerifKR-Medium.otf', '-s21', '-r51',
+            '-v', '_Vowels_', '0x1161', '0x1169', '0x116d', '0x116e', '0x1172', '0x1175'),
+    'NotoSerifKR_Regular_Consonants_21pt.h':
+        _fc('-ffonts/noto-serif-kr/NotoSerifKR-Medium.otf', '-s21',
+            '-v', '_Consonants_', '0x1100', '0x1112'),
+    'NotoSansAR_Regular_Isolated_16pt.h':
+        _fc('-ffonts/noto-sans-arabic/static/NotoSansArabic/NotoSansArabic-Regular.ttf', '-s16', '-r40',
+            '-v', '_Isolated_', '0x60c', '0x60c', '0x61b', '0x61b', '0x61f', '0x669'),
+    'NotoSansAR_Regular_FormsB_16pt.h':
+        _fc('-ffonts/noto-sans-arabic/static/NotoSansArabic/NotoSansArabic-Regular.ttf', '-s16', '-r40',
+            '-v', '_FormsB_', '0xfef5', '0xfef5', '0xfefb', '0xfefb'),
+    '2NotoSans_Regular_CurrencySigns_14pt.h':
+        _fc('-ffonts/noto-sans/NotoSans-Regular.ttf', '-s14',
+            '-v', '_CurrencySigns_', '0x20aa', '0x20ac', '0x20b4', '0x20b4', '0x2116', '0x2116'),
+    '3NotoEmoji_Medium_World_20pt.h':
+        _fc('-ffonts/Noto_Emoji/static/NotoEmoji-Medium.ttf', '-s20', '-r50',
+            '-v', '_World_', '-n0x11000', '0x1F310', '0x1F310'),
+    '3NotoEmoji_Medium_Meh_20pt.h':
+        _fc('-ffonts/Noto_Emoji/static/NotoEmoji-Medium.ttf', '-s20', '-r50',
+            '-v', '_Meh_', '-n0x11000', '0x1F410', '0x1F410'),
+    '3NotoEmoji_Medium_Settings_20pt.h':
+        _fc('-ffonts/Noto_Emoji/static/NotoEmoji-Medium.ttf', '-s20', '-r50',
+            '-v', '_Settings_', '-n0x11000', '0x1F527', '0x1F527'),
+    '3NotoEmoji_Medium_Hyper_18pt.h':
+        _fc('-ffonts/Noto_Emoji/static/NotoEmoji-Medium.ttf', '-s18', '-r48',
+            '-v', '_Hyper_', '-n0x11000', '0x1F4AB', '0x1F4AB'),
+    '6NotoEmoji_Medium_Light_20pt.h':
+        _fc('-ffonts/Noto_Emoji/static/NotoEmoji-Medium.ttf', '-s20', '-r50',
+            '-v', '_Light_', '-n0x11000', '0x1F4A1', '0x1F4A1'),
+    '5NotoEmoji_Medium_Brightness_16pt.h':
+        _fc('-ffonts/Noto_Emoji/static/NotoEmoji-Medium.ttf', '-s16', '-r45',
+            '-v', '_Brightness_', '-n0x11000', '0x1F311', '0x1F318'),
+    '6NotoEmoji_Medium_AI_20pt.h':
+        _fc('-ffonts/Noto_Emoji/static/NotoEmoji-Medium.ttf', '-s20', '-r50',
+            '-v', '_AI_', '-n0x11000', '0x1F300', '0x1F300'),
+    '4NotoEmoji_Medium_FileOpen_14pt.h':
+        _fc('-ffonts/Noto_Emoji/static/NotoEmoji-Medium.ttf', '-s14', '-r50',
+            '-v', '_FileOpen_', '-n0x11000', '0x1F4C2', '0x1F4C2'),
+    '5NotoEmoji_Medium_LockFind_18pt.h':
+        _fc('-ffonts/Noto_Emoji/static/NotoEmoji-Medium.ttf', '-s18', '-r50',
+            '-v', '_LockFind_', '-n0x11000', '0x1F50E', '0x1F50E', '0x1F512', '0x1F512'),
+    '4NotoEmoji_Medium_Copy_18pt.h':
+        _fc('-ffonts/Noto_Emoji/static/NotoEmoji-Medium.ttf', '-s18', '-r50',
+            '-v', '_ClipCpy_', '-n0x11000', '0x1F4CB', '0x1F4CB'),
+    '5NotoEmoji_Medium_Note_12pt.h':
+        _fc('-ffonts/Noto_Emoji/static/NotoEmoji-Medium.ttf', '-s12', '-r50',
+            '-v', '_Note_', '-n0x11000', '0x1f4dd', '0x1f4dd'),
+    '6NotoEmoji_Medium_Emoji0_20pt.h':
+        _fc('-ffonts/Noto_Emoji/static/NotoEmoji-Medium.ttf', '-s20', '-r50',
+            '-v', '_Emojis0_', '-n0x10000', '0x1f600', '0x1f64f'),
+    '7NotoEmoji_Medium_Emoji1 _20pt.h':
+        _fc('-ffonts/Noto_Emoji/static/NotoEmoji-Medium.ttf', '-s20', '-r50',
+            '-v', '_Emojis1_', '-n0xfd00',
+            '0x1f440', '0x1f453', '0x1f47b', '0x1f496', '0x1f4a1', '0x1f4b1'),
+    '7NotoEmoji_Medium_Emoji2_20pt.h':
+        _fc('-ffonts/Noto_Emoji/static/NotoEmoji-Medium.ttf', '-s20', '-r50',
+            '-v', '_Emojis2_', '-n0x10100', '0x1F912', '0x1F919'),
+    '3NotoSansSymbols_Regular_Technical_20pt.h':
+        _fc('-ffonts/Noto_Sans_Symbols/static/NotoSansSymbols-Regular.ttf', '-s20', '-r50',
+            '-v', '_Technical_', '0x2387', '0x2388', '0x238b', '0x238b', '0x2399', '0x2399'),
+    '3NotoSansSymbols2_Regular_Technical_20pt.h':
+        _fc('-ffonts/Noto_Sans_Symbols_2/NotoSansSymbols2-Regular.ttf', '-s20', '-r50',
+            '-v', '_Technical2_', '0x2318', '0x2318', '0x2325', '0x2326', '0x232B', '0x232B'),
+    '3NotoSansSymbols2_Regular_SymbolsAndShapes_20pt.h':
+        _fc('-ffonts/Noto_Sans_Symbols_2/NotoSansSymbols2-Regular.ttf', '-s20', '-r50',
+            '-v', '_SymbolsAndShapes_', '0x25AC', '0x25AC', '0x2611', '0x2611'),
+    '7NotoSansSymbols2_Regular_Chess_20pt.h':
+        _fc('-ffonts/Noto_Sans_Symbols_2/NotoSansSymbols2-Regular.ttf', '-s20', '-r50',
+            '-v', '_Chess_', '0x2654', '0x265F'),
+    '3NotoSansSymbols2_Regular_Arrows_20pt.h':
+        _fc('-ffonts/Noto_Sans_Symbols_2/NotoSansSymbols2-Regular.ttf', '-s20', '-r50',
+            '-v', '_Arrows_',
+            '0x2B6F', '0x2B73', '0x2B7E', '0x2B7E', '0x2B8C', '0x2B8C',
+            '0x2B8E', '0x2B8E', '0x2BA0', '0x2BA0'),
+    '3NotoSansSymbols2_Regular_DiamondCut_20pt.h':
+        _fc('-ffonts/Noto_Sans_Symbols_2/NotoSansSymbols2-Regular.ttf', '-s20', '-r50',
+            '-v', '_DiamondCut_', '0x2702', '0x2702', '0x2756', '0x2756'),
+    '4NotoSansSymbols2_Regular_Util_20pt.h':
+        _fc('-ffonts/Noto_Sans_Symbols_2/NotoSansSymbols2-Regular.ttf', '-s20', '-r50',
+            '-v', '_Util_', '-n0x11000',
+            '0x1F568', '0x1F56A', '0x1F5A9', '0x1F5AB', '0x1F5B3', '0x1F5BC', '0x1F5CA', '0x1F5CA'),
+    '5NotoSansSymbols2_Regular_Window_18pt.h':
+        _fc('-ffonts/Noto_Sans_Symbols_2/NotoSansSymbols2-Regular.ttf', '-s18', '-r50',
+            '-v', '_Window_', '-n0x11000', '0x1F5D5', '0x1F5DB'),
+}
+
+
 def _all_font_headers():
     """All *.h files under FONTS_ROOT that contain a GFXfont Bitmaps array."""
     if not FONTS_ROOT.exists():
@@ -107,6 +256,13 @@ def h_to_font(content: str) -> dict:
         f.write(content)
         f.flush()
     return parse_h_file(f.name)
+
+
+def _fontconvert_to_files(png_path: Path, *args) -> dict:
+    """Run fontconvert, save header to png_path.with_suffix('.h'), return parsed font."""
+    header = run_fontconvert(*args)
+    png_path.with_suffix('.h').write_text(header, encoding='utf-8')
+    return h_to_font(header)
 
 
 # ---------------------------------------------------------------------------
@@ -476,13 +632,20 @@ class TestColorEmojiFlags:
 
     def test_generate_flags_sheet_to_output_dir(self):
         """Write a persistent contact sheet to font_test_output/ for visual inspection."""
-        font = self._font()
         out_dir = Path(__file__).parent / 'font_test_output'
         out_dir.mkdir(exist_ok=True)
-        sheet_path = str(out_dir / f'{font["name"]}_sheet.png')
-        w, h = make_sheet_png(font, sheet_path, scale=4, cols=20)
-        print(f"\n  Flags sheet written: {sheet_path}  ({w}×{h} px)")
-        assert Path(sheet_path).exists()
+        seq = _all_flags_sequence()
+        header = run_fontconvert(
+            f'-f{NOTO_COLOR}', '-s20', '-g', '-r50',
+            '-v_Flags_', '-S', seq
+        )
+        font = h_to_font(header)
+        sheet_path = out_dir / f'{font["name"]}_sheet.png'
+        sheet_path.with_suffix('.h').write_text(header, encoding='utf-8')
+        w, h = make_sheet_png(font, str(sheet_path), scale=4, cols=20)
+        assert sheet_path.exists()
+        print(f"\n  {sheet_path.stem}.h  ({sheet_path.with_suffix('.h').stat().st_size} bytes)")
+        print(f"  {sheet_path.name}  ({w}×{h} px)")
 
 
 # ---------------------------------------------------------------------------
@@ -512,23 +675,22 @@ class TestFlagDitheringVariants:
         ids=[f"{d}_e{e:+.1f}" for d, e in _FLAG_VARIANTS],
     )
     def test_flags_dither_sheet(self, dither, exposure):
-        seq = _all_flags_sequence()
-        font = h_to_font(run_fontconvert(
-            f'-f{NOTO_COLOR}', '-s20', '-g', '-r36', '-W60',
-            f'-D{dither}', f'-e{exposure:.2f}',
-            '-v_Flags_', '-S', seq,
-        ))
-
-        assert len(font['glyphs']) == len(_FLAG_CODES), \
-            f"[{dither} e{exposure:+.1f}] Expected {len(_FLAG_CODES)} glyphs, " \
-            f"got {len(font['glyphs'])}"
-
         out_dir = Path(__file__).parent / 'font_test_output'
         out_dir.mkdir(exist_ok=True)
         sheet_path = out_dir / f"flags_{dither}_e{exposure:+.1f}_sheet.png"
+        font = _fontconvert_to_files(
+            sheet_path,
+            f'-f{NOTO_COLOR}', '-s20', '-g', '-r36', '-W60',
+            f'-D{dither}', f'-e{exposure:.2f}',
+            '-v_Flags_', '-S', _all_flags_sequence(),
+        )
+        assert len(font['glyphs']) == len(_FLAG_CODES), \
+            f"[{dither} e{exposure:+.1f}] Expected {len(_FLAG_CODES)} glyphs, " \
+            f"got {len(font['glyphs'])}"
         w, h = make_sheet_png(font, str(sheet_path), scale=4, cols=20)
         assert sheet_path.exists() and w > 0 and h > 0
-        print(f"\n  {sheet_path.name}  ({w}×{h} px)")
+        print(f"\n  {sheet_path.stem}.h  ({sheet_path.with_suffix('.h').stat().st_size} bytes)")
+        print(f"  {sheet_path.name}  ({w}×{h} px)")
 
 
 # ---------------------------------------------------------------------------
@@ -723,16 +885,17 @@ class TestOutlinePNGs:
     )
     def test_mono_az_sheet(self, thickness):
         """A–Z monochrome at each outline thickness → font_test_output/."""
-        font = h_to_font(run_fontconvert(
-            f'-f{DEJAVU}', '-s20', '-v_Outline_',
-            f'-O{thickness}', '0x41', '0x5a'
-        ))
         out_dir = Path(__file__).parent / 'font_test_output'
         out_dir.mkdir(exist_ok=True)
         path = out_dir / f'outline_O{thickness}_az_sheet.png'
+        font = _fontconvert_to_files(
+            path, f'-f{DEJAVU}', '-s20', '-v_Outline_',
+            f'-O{thickness}', '0x41', '0x5a'
+        )
         w, h = make_sheet_png(font, str(path), scale=4, cols=8)
         assert path.exists() and w > 0 and h > 0
-        print(f"\n  {path.name}  ({w}×{h} px)")
+        print(f"\n  {path.stem}.h  ({path.with_suffix('.h').stat().st_size} bytes)")
+        print(f"  {path.name}  ({w}×{h} px)")
 
     @pytest.mark.parametrize(
         "thickness", _OUTLINE_THICKNESSES,
@@ -740,16 +903,17 @@ class TestOutlinePNGs:
     )
     def test_gray_az_sheet(self, thickness):
         """A–Z grayscale at each outline thickness → font_test_output/."""
-        font = h_to_font(run_fontconvert(
-            f'-f{DEJAVU}', '-s20', '-g', '-v_OutlineGray_',
-            f'-O{thickness}', '0x41', '0x5a'
-        ))
         out_dir = Path(__file__).parent / 'font_test_output'
         out_dir.mkdir(exist_ok=True)
         path = out_dir / f'outline_gray_O{thickness}_az_sheet.png'
+        font = _fontconvert_to_files(
+            path, f'-f{DEJAVU}', '-s20', '-g', '-v_OutlineGray_',
+            f'-O{thickness}', '0x41', '0x5a'
+        )
         w, h = make_sheet_png(font, str(path), scale=4, cols=8)
         assert path.exists() and w > 0 and h > 0
-        print(f"\n  {path.name}  ({w}×{h} px)")
+        print(f"\n  {path.stem}.h  ({path.with_suffix('.h').stat().st_size} bytes)")
+        print(f"  {path.name}  ({w}×{h} px)")
 
     @pytest.mark.skipif(not NOTO_COLOR.exists(),
                         reason="NotoColorEmoji font not present")
@@ -759,19 +923,21 @@ class TestOutlinePNGs:
     )
     def test_flags_sheet(self, thickness):
         """All country flags at each outline thickness → font_test_output/."""
-        seq = _all_flags_sequence()
-        font = h_to_font(run_fontconvert(
-            f'-f{NOTO_COLOR}', '-s20', '-g', '-r36', '-W60',
-            f'-O{thickness}', '-v_Flags_', '-S', seq
-        ))
-        assert len(font['glyphs']) == len(_FLAG_CODES), \
-            f"[O{thickness}] Expected {len(_FLAG_CODES)} flags, got {len(font['glyphs'])}"
         out_dir = Path(__file__).parent / 'font_test_output'
         out_dir.mkdir(exist_ok=True)
+        header = run_fontconvert(
+            f'-f{NOTO_COLOR}', '-s20', '-g', '-r36', '-W60',
+            f'-O{thickness}', '-v_Flags_', '-S', _all_flags_sequence()
+        )
+        font = h_to_font(header)
+        assert len(font['glyphs']) == len(_FLAG_CODES), \
+            f"[O{thickness}] Expected {len(_FLAG_CODES)} flags, got {len(font['glyphs'])}"
         path = out_dir / f'{font["name"]}_O{thickness}_flags_sheet.png'
+        path.with_suffix('.h').write_text(header, encoding='utf-8')
         w, h = make_sheet_png(font, str(path), scale=4, cols=20)
         assert path.exists() and w > 0 and h > 0
-        print(f"\n  {path.name}  ({w}×{h} px, {len(font['glyphs'])} flags)")
+        print(f"\n  {path.stem}.h  ({path.with_suffix('.h').stat().st_size} bytes)")
+        print(f"  {path.name}  ({w}×{h} px, {len(font['glyphs'])} flags)")
 
 
 # ---------------------------------------------------------------------------
@@ -814,7 +980,10 @@ _LANG_LAYER_COUNTRIES = [
 _LANG_FLAG_SEQUENCE = ', '.join(_flag_seq(cc) for cc in _LANG_LAYER_COUNTRIES)
 
 _LANG_OUTLINE_THICKNESSES = [0, 1, 2]
-_LANG_CONTRASTS = [0.5, 1.0, 1.5, 2.0]
+_LANG_CONTRASTS           = [0.5, 1.0, 1.5, 2.0]
+_LANG_GAMMAS              = [0.5, 1.0, 1.5, 2.2]
+_LANG_SATURATIONS         = [0.0, 0.2, 0.4, 0.6]
+_LANG_SHARPNESSES         = [0.0, 0.5, 1.0, 2.0]
 
 
 @pytest.mark.skipif(not NOTO_COLOR.exists(),
@@ -842,11 +1011,15 @@ class TestLangLayerFlags:
     )
     def test_lang_flags_sheet(self, thickness):
         """All lang_layer flags at the given outline thickness → font_test_output/."""
+        out_dir = Path(__file__).parent / 'font_test_output'
+        out_dir.mkdir(exist_ok=True)
         extra = [f'-O{thickness}'] if thickness > 0 else []
-        font = h_to_font(run_fontconvert(
+        path = out_dir / f'lang_flags_O{thickness}_sheet.png'
+        font = _fontconvert_to_files(
+            path,
             f'-f{NOTO_COLOR}', '-s20', '-g', '-r36', '-W60',
             *extra, '-v_LangFlags_', '-S', _LANG_FLAG_SEQUENCE,
-        ))
+        )
         assert len(font['glyphs']) == len(_LANG_LAYER_COUNTRIES), (
             f"[O{thickness}] Expected {len(_LANG_LAYER_COUNTRIES)} flags, "
             f"got {len(font['glyphs'])}"
@@ -862,13 +1035,10 @@ class TestLangLayerFlags:
             )
         ]
         assert not blank, f"[O{thickness}] Flags with empty bitmaps: {blank}"
-
-        out_dir = Path(__file__).parent / 'font_test_output'
-        out_dir.mkdir(exist_ok=True)
-        path = out_dir / f'lang_flags_O{thickness}_sheet.png'
         w, h = make_sheet_png(font, str(path), scale=4, cols=9)
         assert path.exists() and w > 0 and h > 0
-        print(f"\n  {path.name}  ({w}×{h} px, {len(font['glyphs'])} flags)")
+        print(f"\n  {path.stem}.h  ({path.with_suffix('.h').stat().st_size} bytes)")
+        print(f"  {path.name}  ({w}×{h} px, {len(font['glyphs'])} flags)")
 
     @pytest.mark.parametrize(
         "dither,exposure",
@@ -877,21 +1047,23 @@ class TestLangLayerFlags:
     )
     def test_lang_flags_O1_dither_sheet(self, dither, exposure):
         """All lang_layer flags with outline=1, each dither mode × exposure → font_test_output/."""
-        font = h_to_font(run_fontconvert(
+        out_dir = Path(__file__).parent / 'font_test_output'
+        out_dir.mkdir(exist_ok=True)
+        path = out_dir / f'lang_flags_O1_{dither}_e{exposure:+.1f}_sheet.png'
+        font = _fontconvert_to_files(
+            path,
             f'-f{NOTO_COLOR}', '-s20', '-g', '-r36', '-W60',
             '-O1', f'-D{dither}', f'-e{exposure:.2f}',
             '-v_LangFlags_', '-S', _LANG_FLAG_SEQUENCE,
-        ))
+        )
         assert len(font['glyphs']) == len(_LANG_LAYER_COUNTRIES), (
             f"[O1 {dither} e{exposure:+.1f}] Expected {len(_LANG_LAYER_COUNTRIES)} flags, "
             f"got {len(font['glyphs'])}"
         )
-        out_dir = Path(__file__).parent / 'font_test_output'
-        out_dir.mkdir(exist_ok=True)
-        path = out_dir / f'lang_flags_O1_{dither}_e{exposure:+.1f}_sheet.png'
         w, h = make_sheet_png(font, str(path), scale=4, cols=9)
         assert path.exists() and w > 0 and h > 0
-        print(f"\n  {path.name}  ({w}×{h} px)")
+        print(f"\n  {path.stem}.h  ({path.with_suffix('.h').stat().st_size} bytes)")
+        print(f"  {path.name}  ({w}×{h} px)")
 
     @pytest.mark.parametrize(
         "contrast", _LANG_CONTRASTS,
@@ -899,21 +1071,140 @@ class TestLangLayerFlags:
     )
     def test_lang_flags_O1_contrast_sheet(self, contrast):
         """All lang_layer flags with outline=1, each contrast value → font_test_output/."""
-        font = h_to_font(run_fontconvert(
+        out_dir = Path(__file__).parent / 'font_test_output'
+        out_dir.mkdir(exist_ok=True)
+        path = out_dir / f'lang_flags_O1_c{contrast:.1f}_sheet.png'
+        font = _fontconvert_to_files(
+            path,
             f'-f{NOTO_COLOR}', '-s20', '-g', '-r36', '-W60',
             '-O1', f'-c{contrast:.2f}',
             '-v_LangFlags_', '-S', _LANG_FLAG_SEQUENCE,
-        ))
+        )
         assert len(font['glyphs']) == len(_LANG_LAYER_COUNTRIES), (
             f"[O1 c{contrast:.1f}] Expected {len(_LANG_LAYER_COUNTRIES)} flags, "
             f"got {len(font['glyphs'])}"
         )
-        out_dir = Path(__file__).parent / 'font_test_output'
-        out_dir.mkdir(exist_ok=True)
-        path = out_dir / f'lang_flags_O1_c{contrast:.1f}_sheet.png'
         w, h = make_sheet_png(font, str(path), scale=4, cols=9)
         assert path.exists() and w > 0 and h > 0
-        print(f"\n  {path.name}  ({w}×{h} px)")
+        print(f"\n  {path.stem}.h  ({path.with_suffix('.h').stat().st_size} bytes)")
+        print(f"  {path.name}  ({w}×{h} px)")
+
+    @pytest.mark.parametrize(
+        "gamma", _LANG_GAMMAS,
+        ids=[f"G{g:.1f}" for g in _LANG_GAMMAS],
+    )
+    def test_lang_flags_O1_gamma_sheet(self, gamma):
+        """All lang_layer flags with outline=1, each gamma value → font_test_output/."""
+        out_dir = Path(__file__).parent / 'font_test_output'
+        out_dir.mkdir(exist_ok=True)
+        path = out_dir / f'lang_flags_O1_G{gamma:.1f}_sheet.png'
+        font = _fontconvert_to_files(
+            path,
+            f'-f{NOTO_COLOR}', '-s20', '-g', '-r36', '-W60',
+            '-O1', f'-G{gamma:.2f}',
+            '-v_LangFlags_', '-S', _LANG_FLAG_SEQUENCE,
+        )
+        assert len(font['glyphs']) == len(_LANG_LAYER_COUNTRIES), (
+            f"[O1 G{gamma:.1f}] Expected {len(_LANG_LAYER_COUNTRIES)} flags, "
+            f"got {len(font['glyphs'])}"
+        )
+        w, h = make_sheet_png(font, str(path), scale=4, cols=9)
+        assert path.exists() and w > 0 and h > 0
+        print(f"\n  {path.stem}.h  ({path.with_suffix('.h').stat().st_size} bytes)")
+        print(f"  {path.name}  ({w}×{h} px)")
+
+    @pytest.mark.parametrize(
+        "sat", _LANG_SATURATIONS,
+        ids=[f"B{s:.1f}" for s in _LANG_SATURATIONS],
+    )
+    def test_lang_flags_O1_saturation_sheet(self, sat):
+        """All lang_layer flags with outline=1, each saturation boost → font_test_output/."""
+        out_dir = Path(__file__).parent / 'font_test_output'
+        out_dir.mkdir(exist_ok=True)
+        path = out_dir / f'lang_flags_O1_B{sat:.1f}_sheet.png'
+        font = _fontconvert_to_files(
+            path,
+            f'-f{NOTO_COLOR}', '-s20', '-g', '-r36', '-W60',
+            '-O1', f'-B{sat:.2f}',
+            '-v_LangFlags_', '-S', _LANG_FLAG_SEQUENCE,
+        )
+        assert len(font['glyphs']) == len(_LANG_LAYER_COUNTRIES), (
+            f"[O1 B{sat:.1f}] Expected {len(_LANG_LAYER_COUNTRIES)} flags, "
+            f"got {len(font['glyphs'])}"
+        )
+        w, h = make_sheet_png(font, str(path), scale=4, cols=9)
+        assert path.exists() and w > 0 and h > 0
+        print(f"\n  {path.stem}.h  ({path.with_suffix('.h').stat().st_size} bytes)")
+        print(f"  {path.name}  ({w}×{h} px)")
+
+    @pytest.mark.parametrize(
+        "sharp", _LANG_SHARPNESSES,
+        ids=[f"U{s:.1f}" for s in _LANG_SHARPNESSES],
+    )
+    def test_lang_flags_O1_sharpness_sheet(self, sharp):
+        """All lang_layer flags with outline=1, each unsharp-mask strength → font_test_output/."""
+        out_dir = Path(__file__).parent / 'font_test_output'
+        out_dir.mkdir(exist_ok=True)
+        path = out_dir / f'lang_flags_O1_U{sharp:.1f}_sheet.png'
+        font = _fontconvert_to_files(
+            path,
+            f'-f{NOTO_COLOR}', '-s20', '-g', '-r36', '-W60',
+            '-O1', f'-U{sharp:.2f}',
+            '-v_LangFlags_', '-S', _LANG_FLAG_SEQUENCE,
+        )
+        assert len(font['glyphs']) == len(_LANG_LAYER_COUNTRIES), (
+            f"[O1 U{sharp:.1f}] Expected {len(_LANG_LAYER_COUNTRIES)} flags, "
+            f"got {len(font['glyphs'])}"
+        )
+        w, h = make_sheet_png(font, str(path), scale=4, cols=9)
+        assert path.exists() and w > 0 and h > 0
+        print(f"\n  {path.stem}.h  ({path.with_suffix('.h').stat().st_size} bytes)")
+        print(f"  {path.name}  ({w}×{h} px)")
+
+    # Combinations judged most promising.
+    # Gamma and saturation both push midtones toward white, so they are paired
+    # with a small negative exposure (-e) to re-centre the dither threshold and
+    # avoid over-brightening.  Contrast (-c) is symmetric around 0.5 and does
+    # not need compensation.  Stucki has a wider error kernel than FS and tends
+    # to give cleaner stripe edges.
+    _COMBINED_VARIANTS = [
+        # label (for filenames/IDs)          CLI args
+        ('U1.0',                             ['-U1.0']),
+        ('U1.0_G1.2_em0.05',                 ['-U1.0', '-G1.2', '-e-0.05']),
+        ('U1.0_G1.5_em0.15',                 ['-U1.0', '-G1.5', '-e-0.15']),
+        ('U1.0_B0.2_em0.05',                 ['-U1.0', '-B0.2', '-e-0.05']),
+        ('U1.0_c1.5',                        ['-U1.0', '-c1.5']),
+        ('U1.0_G1.2_stucki',                 ['-U1.0', '-G1.2', '-Dstucki']),
+    ]
+
+    @pytest.mark.parametrize(
+        "label,args",
+        [(label, args) for label, args in _COMBINED_VARIANTS],
+        ids=[v[0] for v in _COMBINED_VARIANTS],
+    )
+    def test_lang_flags_O1_combined_sheet(self, label, args):
+        """Promising parameter combinations with outline=1 → font_test_output/."""
+        out_dir = Path(__file__).parent / 'font_test_output'
+        out_dir.mkdir(exist_ok=True)
+
+        header = run_fontconvert(
+            f'-f{NOTO_COLOR}', '-s20', '-g', '-r36', '-W60',
+            '-O1', *args,
+            '-v_LangFlags_', '-S', _LANG_FLAG_SEQUENCE,
+        )
+        h_path = out_dir / f'lang_flags_O1_{label}.h'
+        h_path.write_text(header, encoding='utf-8')
+
+        font = h_to_font(header)
+        assert len(font['glyphs']) == len(_LANG_LAYER_COUNTRIES), (
+            f"[O1 {label}] Expected {len(_LANG_LAYER_COUNTRIES)} flags, "
+            f"got {len(font['glyphs'])}"
+        )
+        path = out_dir / f'lang_flags_O1_{label}_sheet.png'
+        w, h = make_sheet_png(font, str(path), scale=4, cols=9)
+        assert path.exists() and w > 0 and h > 0
+        print(f"\n  {h_path.name}  ({h_path.stat().st_size} bytes)")
+        print(f"  {path.name}  ({w}×{h} px)")
 
 
 # ---------------------------------------------------------------------------
@@ -943,5 +1234,12 @@ class TestAllFirmwareFonts:
 
         out_dir = Path(__file__).parent / 'font_test_output'
         out_dir.mkdir(exist_ok=True)
-        sheet_path = str(out_dir / f"{font['name']}_sheet.png")
-        make_sheet_png(font, sheet_path, scale=4, cols=16)
+        sheet_path = out_dir / f"{font['name']}_sheet.png"
+
+        is_generated = 'generated' in h_path.parts
+        if is_generated and h_path.name in _GENERATED_FONT_ARGS:
+            _fontconvert_to_files(sheet_path, *_GENERATED_FONT_ARGS[h_path.name])
+        else:
+            sheet_path.with_suffix('.h').write_bytes(h_path.read_bytes())
+
+        make_sheet_png(font, str(sheet_path), scale=4, cols=16)

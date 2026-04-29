@@ -58,6 +58,9 @@ FontSettings s = {
 	.dither_mode = DITHER_FLOYD_STEINBERG,
 	.exposure = 0.0f,
 	.contrast = 1.0f,
+	.gamma_val = 1.0f,
+	.saturation_boost = 0.0f,
+	.sharpness = 0.0f,
 	.outline = 0,
 };
 

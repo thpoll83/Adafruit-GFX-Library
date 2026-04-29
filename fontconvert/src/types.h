@@ -21,6 +21,9 @@ typedef struct settings {
 	DitherMode dither_mode;
 	float exposure;
 	float contrast;
+	float gamma_val;
+	float saturation_boost;
+	float sharpness;
 	int outline;
 } FontSettings;
 

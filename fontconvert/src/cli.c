@@ -105,7 +105,25 @@ void print_usage(char *argv[]) {
 	        "              1.0 = unchanged, 0.0 = flat gray, >1.0 = more contrast).\n"
 	        "              Stretches gray values around 0.5: output =\n"
 	        "              (input - 0.5) * N + 0.5, clamped to [0, 1].  Applied\n"
-	        "              before -e.  Useful to sharpen washed-out flag colours.\n");
+	        "              after -G and -U, before -e.\n");
+	fprintf(stderr,
+	        "    -G N      Gamma correction applied before dithering (default: 1.0\n"
+	        "              = unchanged).  output = input^(1/N), so N > 1 lifts\n"
+	        "              midtones toward white and N < 1 darkens them.  More\n"
+	        "              nuanced than -c for distinguishing mid-luminance colours\n"
+	        "              (e.g. red vs black) without blowing out whites.\n");
+	fprintf(stderr,
+	        "    -B N      Saturation boost for color (BGRA) bitmaps only (default:\n"
+	        "              0.0 = off, range 0.0-1.0).  Adds N * HSV-saturation to\n"
+	        "              the luminance before compositing, lifting fully-saturated\n"
+	        "              colours (red, blue, green) away from neutral gray/black.\n"
+	        "              Applied during BGRA→gray conversion, before -U/-G/-c/-e.\n");
+	fprintf(stderr,
+	        "    -U N      Unsharp-mask strength applied before dithering (default:\n"
+	        "              0.0 = off).  Subtracts a 3×3 Gaussian blur and adds N\n"
+	        "              times the difference back: output = input + N*(input-blur).\n"
+	        "              Sharpens stripe edges that bilinear downscaling softens.\n"
+	        "              Applied before -G/-c/-e.\n");
 	fprintf(stderr,
 	        "    -o N      Add N to every codepoint written into the output struct\n"
 	        "              (positive offset; overridden by -n)\n");
@@ -175,7 +193,7 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 	if (argc <= 1)
 		return -1;
 
-	while ((opt = getopt(argc, argv, "dgs:f:v:r:o:n:S:W:D:e:c:O:")) != -1) {
+	while ((opt = getopt(argc, argv, "dgs:f:v:r:o:n:S:W:D:e:c:G:B:U:O:")) != -1) {
 		switch (opt) {
 		case 's':
 			if (!optarg) { printf("Missing value for argument s!\n"); return -1; }
@@ -259,6 +277,25 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 			if (!optarg) { printf("Missing value for argument c!\n"); return -1; }
 			s.contrast = strtof(optarg, NULL);
 			if (s.contrast < 0.0f) s.contrast = 0.0f;
+			break;
+
+		case 'G':
+			if (!optarg) { printf("Missing value for argument G!\n"); return -1; }
+			s.gamma_val = strtof(optarg, NULL);
+			if (s.gamma_val <= 0.0f) s.gamma_val = 0.01f;
+			break;
+
+		case 'B':
+			if (!optarg) { printf("Missing value for argument B!\n"); return -1; }
+			s.saturation_boost = strtof(optarg, NULL);
+			if (s.saturation_boost < 0.0f) s.saturation_boost = 0.0f;
+			if (s.saturation_boost > 1.0f) s.saturation_boost = 1.0f;
+			break;
+
+		case 'U':
+			if (!optarg) { printf("Missing value for argument U!\n"); return -1; }
+			s.sharpness = strtof(optarg, NULL);
+			if (s.sharpness < 0.0f) s.sharpness = 0.0f;
 			break;
 
 		case 'O':

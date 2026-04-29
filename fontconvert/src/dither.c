@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -47,7 +48,15 @@ static float *bgra_to_gray_buf(const uint8_t *buf, int pitch, int width, int row
 			float g = p[1] / 255.0f;
 			float r = p[2] / 255.0f;
 			float a = p[3] / 255.0f;
-			gray[y * width + x] = a * (0.2126f * r + 0.7152f * g + 0.0722f * b);
+			float lum = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+			if (s.saturation_boost > 0.0f) {
+				float cmax = r > g ? (r > b ? r : b) : (g > b ? g : b);
+				float cmin = r < g ? (r < b ? r : b) : (g < b ? g : b);
+				float sat  = cmax > 0.0f ? (cmax - cmin) / cmax : 0.0f;
+				lum += s.saturation_boost * sat;
+				if (lum > 1.0f) lum = 1.0f;
+			}
+			gray[y * width + x] = a * lum;
 		}
 	}
 	return gray;
@@ -188,7 +197,46 @@ static void dither_random(float *gray, int width, int rows) {
 		}
 }
 
+// 3×3 Gaussian unsharp mask: sharpened = input + amount*(input - blur).
+// Preserves stripe edges that bilinear downscaling softens.
+static void apply_unsharp_mask(float *gray, int width, int rows, float amount) {
+	float *blurred = (float *)malloc(width * rows * sizeof(float));
+	if (!blurred) return;
+	static const float k[3][3] = {
+		{ 1/16.f, 2/16.f, 1/16.f },
+		{ 2/16.f, 4/16.f, 2/16.f },
+		{ 1/16.f, 2/16.f, 1/16.f },
+	};
+	for (int y = 0; y < rows; y++) {
+		for (int x = 0; x < width; x++) {
+			float sum = 0.0f;
+			for (int dy = -1; dy <= 1; dy++) {
+				int ny = y + dy < 0 ? 0 : y + dy >= rows  ? rows  - 1 : y + dy;
+				for (int dx = -1; dx <= 1; dx++) {
+					int nx = x + dx < 0 ? 0 : x + dx >= width ? width - 1 : x + dx;
+					sum += gray[ny * width + nx] * k[dy+1][dx+1];
+				}
+			}
+			blurred[y * width + x] = sum;
+		}
+	}
+	for (int i = 0; i < width * rows; i++) {
+		float v = gray[i] + amount * (gray[i] - blurred[i]);
+		gray[i] = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
+	}
+	free(blurred);
+}
+
 void apply_dithering(float *gray, int width, int rows) {
+	if (s.sharpness > 0.0f)
+		apply_unsharp_mask(gray, width, rows, s.sharpness);
+	if (s.gamma_val != 1.0f) {
+		float inv_g = 1.0f / s.gamma_val;
+		for (int i = 0; i < width * rows; i++) {
+			float v = gray[i];
+			gray[i] = v <= 0.0f ? 0.0f : powf(v, inv_g);
+		}
+	}
 	if (s.contrast != 1.0f) {
 		for (int i = 0; i < width * rows; i++) {
 			float v = (gray[i] - 0.5f) * s.contrast + 0.5f;
