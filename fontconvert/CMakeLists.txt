@@ -51,16 +51,35 @@ SET_TARGET_PROPERTIES(hb PROPERTIES
     IMPORTED_LOCATION ${HARFBUZZ_DIR}/lib/${HARFBUZZ_LIB_NAME})
 
 # libpng is required by FreeType (built with FT_REQUIRE_PNG=TRUE) and linked
-# directly by fontconvert. On Windows, provide it via vcpkg or set PNG_ROOT.
-find_package(PNG REQUIRED)
+# as a transitive static dependency.  On Windows, PNG_EP_DIR / ZLIB_EP_DIR are
+# set by freetype-hb/CMakeLists.txt (ExternalProject builds); on other
+# platforms use the system-provided libpng.
+if(WIN32 AND DEFINED PNG_EP_DIR)
+  add_library(PNG::PNG STATIC IMPORTED)
+  set_target_properties(PNG::PNG PROPERTIES
+    IMPORTED_LOCATION "${PNG_EP_DIR}/lib/${PNG_EP_LIB_NAME}")
+  add_library(ZLIB_ep STATIC IMPORTED)
+  set_target_properties(ZLIB_ep PROPERTIES
+    IMPORTED_LOCATION "${ZLIB_EP_DIR}/lib/${ZLIB_EP_LIB_NAME}")
+else()
+  find_package(PNG REQUIRED)
+endif()
 
 TARGET_LINK_LIBRARIES(fontconvert freetype)
 TARGET_LINK_LIBRARIES(fontconvert hb)
 TARGET_LINK_LIBRARIES(fontconvert PNG::PNG)
-TARGET_LINK_LIBRARIES(fontconvert m)
+if(WIN32 AND DEFINED ZLIB_EP_DIR)
+  TARGET_LINK_LIBRARIES(fontconvert ZLIB_ep)
+endif()
+if(NOT MSVC)
+  TARGET_LINK_LIBRARIES(fontconvert m)
+endif()
 
 target_include_directories(fontconvert PRIVATE ${FREETYPE_DIR}/include/freetype2)
 target_include_directories(fontconvert PRIVATE ${HARFBUZZ_DIR}/include/harfbuzz)
+if(WIN32 AND DEFINED PNG_EP_DIR)
+  target_include_directories(fontconvert PRIVATE "${PNG_EP_DIR}/include")
+endif()
 
 # MSVC-specific options
 if(MSVC)
