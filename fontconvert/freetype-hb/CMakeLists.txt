@@ -18,11 +18,9 @@ if (WIN32)
   set(zlib_lib_name     zlibstatic.lib)
   set(png_lib_name      libpng16_static.lib)
 else()
-  if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-    set(freetype_lib_name libfreetyped.a)
-  else()
-    set(freetype_lib_name libfreetype.a)
-  endif()
+  # ExternalProjects are always built in Release mode, so the lib name is
+  # always libfreetype.a regardless of the outer CMAKE_BUILD_TYPE.
+  set(freetype_lib_name libfreetype.a)
   set(harfbuzz_lib_name libharfbuzz.a)
 endif()
 
