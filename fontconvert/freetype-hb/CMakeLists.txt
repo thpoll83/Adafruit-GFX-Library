@@ -101,7 +101,13 @@ list(APPEND freetype_byproduct
 
 ExternalProject_Add(
   freetype_without_harfbuzz
+  # Fallback mirrors: savannah is HTTP-403-blocked under Claude Code on the
+  # web. CMake tries each URL in order until one downloads. The SourceForge
+  # entry is the byte-identical official release tarball; the GitHub archive
+  # is a last resort (extracts to a differently-named dir, builds fine).
   URL https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.gz
+      https://downloads.sourceforge.net/project/freetype/freetype2/2.13.3/freetype-2.13.3.tar.gz
+      https://github.com/freetype/freetype/archive/refs/tags/VER-2-13-3.tar.gz
   DOWNLOAD_EXTRACT_TIMESTAMP TRUE
   CMAKE_ARGS
     -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
@@ -109,6 +115,8 @@ ExternalProject_Add(
     -DFT_DISABLE_HARFBUZZ=TRUE
     -DFT_DISABLE_ZLIB=TRUE
     -DFT_DISABLE_PNG=TRUE
+    -DFT_DISABLE_BZIP2=TRUE
+    -DFT_DISABLE_BROTLI=TRUE
   BUILD_BYPRODUCTS ${freetype_byproduct}
   ${win32_release_build}
 )
@@ -129,7 +137,12 @@ if (WIN32)
   ExternalProject_Add(
     harfbuzz
     DEPENDS freetype_without_harfbuzz
+    # Fallback mirror: freedesktop is HTTP-403-blocked under Claude Code on
+    # the web. Must be the GitHub *release* asset (not the source archive) —
+    # the Linux path below runs <SOURCE_DIR>/configure, which only the
+    # release tarball ships pre-generated.
     URL https://www.freedesktop.org/software/harfbuzz/release/harfbuzz-2.6.7.tar.xz
+        https://github.com/harfbuzz/harfbuzz/releases/download/2.6.7/harfbuzz-2.6.7.tar.xz
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     CMAKE_ARGS
       -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
@@ -146,7 +159,12 @@ else()
   ExternalProject_Add(
     harfbuzz
     DEPENDS freetype_without_harfbuzz
+    # Fallback mirror: freedesktop is HTTP-403-blocked under Claude Code on
+    # the web. Must be the GitHub *release* asset (not the source archive) —
+    # the Linux path below runs <SOURCE_DIR>/configure, which only the
+    # release tarball ships pre-generated.
     URL https://www.freedesktop.org/software/harfbuzz/release/harfbuzz-2.6.7.tar.xz
+        https://github.com/harfbuzz/harfbuzz/releases/download/2.6.7/harfbuzz-2.6.7.tar.xz
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     CONFIGURE_COMMAND
       FREETYPE_CFLAGS="-I${freetype_without_harfbuzz_dir}/include/freetype2/"
@@ -172,7 +190,13 @@ set(HARFBUZZ_LIB_NAME ${harfbuzz_lib_name} PARENT_SCOPE)
 ExternalProject_Add(
   freetype_with_harfbuzz
   DEPENDS harfbuzz ${win32_extra_deps}
+  # Fallback mirrors: savannah is HTTP-403-blocked under Claude Code on the
+  # web. CMake tries each URL in order until one downloads. The SourceForge
+  # entry is the byte-identical official release tarball; the GitHub archive
+  # is a last resort (extracts to a differently-named dir, builds fine).
   URL https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.gz
+      https://downloads.sourceforge.net/project/freetype/freetype2/2.13.3/freetype-2.13.3.tar.gz
+      https://github.com/freetype/freetype/archive/refs/tags/VER-2-13-3.tar.gz
   DOWNLOAD_EXTRACT_TIMESTAMP TRUE
   CMAKE_ARGS
     -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
@@ -181,6 +205,8 @@ ExternalProject_Add(
     -DCMAKE_MODULE_PATH=${harfbuzz_dir}
     -DFT_REQUIRE_HARFBUZZ=TRUE
     -DFT_REQUIRE_PNG=TRUE
+    -DFT_DISABLE_BZIP2=TRUE
+    -DFT_DISABLE_BROTLI=TRUE
     ${win32_ft_png_args}
   BUILD_BYPRODUCTS ${freetype_byproduct}
   ${win32_release_build}

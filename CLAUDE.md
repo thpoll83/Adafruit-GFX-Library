@@ -18,12 +18,21 @@ cmake --build .
 cmake --install .   # installs to ~/.local/bin/fontconvert
 ```
 
-> **Claude Code on the web: the CMake build fails — build against system libs instead.**
-> The `ExternalProject` downloads are blocked by the web session's network policy:
-> FreeType comes from `download.savannah.gnu.org` and HarfBuzz from `www.freedesktop.org`,
-> **both return HTTP 403** (verified 2026-06-04). `cmake --build` dies at the FreeType
-> download step. Don't conclude the toolchain is unavailable — just skip the
-> ExternalProject and compile directly against the distro packages:
+> **Claude Code on the web: the CMake build works, but only via fallback mirrors.**
+> The `ExternalProject` primary download hosts are blocked by the web session's network
+> policy: FreeType's `download.savannah.gnu.org` and HarfBuzz's `www.freedesktop.org`
+> **both return HTTP 403** (verified 2026-06-04). `freetype-hb/CMakeLists.txt` therefore
+> lists fallback `URL`s (CMake tries each in order): FreeType from SourceForge / GitHub,
+> HarfBuzz from GitHub *releases* (must be the release asset, not the source archive — the
+> Linux build runs `<SOURCE_DIR>/configure`, which only the release tarball ships). With
+> those in place the normal `cmake .. && cmake --build .` succeeds end-to-end.
+>   - The FreeType ExternalProjects also pass `-DFT_DISABLE_BZIP2=TRUE -DFT_DISABLE_BROTLI=TRUE`
+>     (alongside the existing ZLIB/PNG disables). Without them, FreeType auto-detects the
+>     distro's bzip2/brotli *headers* and references `BZ2_*` / `BrotliDecoderDecompress`, which
+>     aren't on the link line → final link fails. The tool needs none of these.
+>   - Don't conclude the toolchain is unavailable if a download 403s — check the mirror list.
+>
+> **Fast alternative — skip the ExternalProject, build against distro libs directly:**
 > ```bash
 > sudo apt-get install -y libfreetype-dev libharfbuzz-dev
 > cd fontconvert/src
@@ -34,10 +43,7 @@ cmake --install .   # installs to ~/.local/bin/fontconvert
 > ```
 > Distro versions (FreeType 2.13.2, HarfBuzz 8.3.0) differ from the pinned 2.13.3 / 2.6.7
 > but the APIs `fontconvert` uses are stable across them — builds clean and runs correctly.
-> If you instead need the normal CMake build to work, **GitHub and SourceForge mirrors are
-> reachable** (FreeType: `github.com/freetype/freetype` archive or `downloads.sourceforge.net`;
-> HarfBuzz: `github.com/harfbuzz/harfbuzz/releases`) and can be added as fallback `URL`s in
-> `freetype-hb/CMakeLists.txt` (no `URL_HASH` is pinned there, so swapping the URL is safe).
+> Handy when you just need the binary quickly and don't want to wait on the full EP build.
 
 ### Variable-font weight (`-w`)
 Most Noto families are now variable-font-only on Google Fonts, and FreeType renders their
