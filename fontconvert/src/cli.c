@@ -52,7 +52,7 @@ int range_count(const ch_range *range) {
 
 void print_usage(char *argv[]) {
 	fprintf(stderr,
-	        "usage: %s -f FONTFILE [-s SIZE] [-v VARIANT] [-g] [-r H] [-W W]\n"
+	        "usage: %s -f FONTFILE [-s SIZE] [-v VARIANT] [-g] [-r H] [-W W] [-w WGHT]\n"
 	        "       %*s [-D MODE] [-e EXPOSURE] [-c CONTRAST] [-o OFFSET|-n OFFSET]\n"
 	        "       %*s [-S \"G[,G]...\" | RANGES]\n"
 	        "       where G = space-separated hex codepoints for one glyph\n",
@@ -84,6 +84,12 @@ void print_usage(char *argv[]) {
 	        "              any -r height limit) is still wider than N, it is scaled\n"
 	        "              down proportionally so width <= N.  Useful for wide\n"
 	        "              glyphs like landscape-orientation country flags.\n");
+	fprintf(stderr,
+	        "    -w N      Variable-font weight: pin the 'wght' axis to N (e.g. 500\n"
+	        "              for Medium, 700 for Bold).  Many Noto families ship only\n"
+	        "              as variable fonts; without -w FreeType renders the default\n"
+	        "              instance (usually Regular/400).  N is clamped to the axis\n"
+	        "              range; ignored with a warning for non-variable fonts.\n");
 	fprintf(stderr,
 	        "    -D MODE   Dithering algorithm used when -g is active (default: fs):\n"
 	        "                fs        Floyd-Steinberg error diffusion — smooth\n"
@@ -193,7 +199,7 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 	if (argc <= 1)
 		return -1;
 
-	while ((opt = getopt(argc, argv, "dgs:f:v:r:o:n:S:W:D:e:c:G:B:U:O:")) != -1) {
+	while ((opt = getopt(argc, argv, "dgs:f:v:r:o:n:S:W:w:D:e:c:G:B:U:O:")) != -1) {
 		switch (opt) {
 		case 's':
 			if (!optarg) { printf("Missing value for argument s!\n"); return -1; }
@@ -245,6 +251,12 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 		case 'W':
 			if (!optarg) { printf("Missing value for argument W!\n"); return -1; }
 			s.max_width = to_int(optarg);
+			break;
+
+		case 'w':
+			if (!optarg) { printf("Missing value for argument w!\n"); return -1; }
+			s.weight = to_int(optarg);
+			if (s.weight < 0) s.weight = 0;
 			break;
 
 		case 'D':

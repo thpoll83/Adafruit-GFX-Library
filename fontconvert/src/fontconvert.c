@@ -40,6 +40,7 @@ See notes at end for glyph nomenclature & other tidbits.
 #include FT_GLYPH_H
 #include FT_MODULE_H
 #include FT_TRUETYPE_DRIVER_H
+#include FT_MULTIPLE_MASTERS_H
 #include "../../gfxfont.h"
 
 #include "types.h"
@@ -51,6 +52,7 @@ FontSettings s = {
 	.size = 12,
 	.height = 0,
 	.max_width = 0,
+	.weight = 0,
 	.offset = 0,
 	.render_mode = 0,
 	.dump_codepoints = 0,
@@ -151,6 +153,39 @@ int main(int argc, char *argv[]) {
 		fprintf(stderr, "Font load error: %d", err);
 		FT_Done_FreeType(library);
 		return err;
+	}
+
+	// Pin the 'wght' variation axis when -w is given.  Google Fonts now ships
+	// most Noto families as variable fonts only; without this FreeType renders
+	// their default instance (usually Regular/400), so e.g. -w500 selects Medium.
+	if (s.weight > 0) {
+		if (FT_HAS_MULTIPLE_MASTERS(face)) {
+			FT_MM_Var *mm = NULL;
+			if (FT_Get_MM_Var(face, &mm) == 0 && mm) {
+				FT_Fixed *coords = malloc(mm->num_axis * sizeof(FT_Fixed));
+				int found = 0;
+				for (FT_UInt a = 0; a < mm->num_axis; ++a) {
+					coords[a] = mm->axis[a].def;
+					if (mm->axis[a].tag == FT_MAKE_TAG('w', 'g', 'h', 't')) {
+						FT_Fixed w = (FT_Fixed)s.weight << 16; // 16.16 fixed point
+						if (w < mm->axis[a].minimum) w = mm->axis[a].minimum;
+						if (w > mm->axis[a].maximum) w = mm->axis[a].maximum;
+						coords[a] = w;
+						found = 1;
+					}
+				}
+				if (found)
+					FT_Set_Var_Design_Coordinates(face, mm->num_axis, coords);
+				else
+					fprintf(stderr, "Warning: -w%d ignored, '%s' has no 'wght' "
+					        "axis\n", s.weight, fontName);
+				free(coords);
+				FT_Done_MM_Var(library, mm);
+			}
+		} else {
+			fprintf(stderr, "Warning: -w%d ignored, '%s' is not a variable "
+			        "font\n", s.weight, fontName);
+		}
 	}
 
 	if (s.dump_codepoints) {
