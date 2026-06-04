@@ -18,6 +18,35 @@ cmake --build .
 cmake --install .   # installs to ~/.local/bin/fontconvert
 ```
 
+> **Claude Code on the web: the CMake build fails — build against system libs instead.**
+> The `ExternalProject` downloads are blocked by the web session's network policy:
+> FreeType comes from `download.savannah.gnu.org` and HarfBuzz from `www.freedesktop.org`,
+> **both return HTTP 403** (verified 2026-06-04). `cmake --build` dies at the FreeType
+> download step. Don't conclude the toolchain is unavailable — just skip the
+> ExternalProject and compile directly against the distro packages:
+> ```bash
+> sudo apt-get install -y libfreetype-dev libharfbuzz-dev
+> cd fontconvert/src
+> gcc -O2 -I. $(pkg-config --cflags freetype2 harfbuzz) \
+>     cli.c dither.c font_render.c fontconvert.c \
+>     $(pkg-config --libs freetype2 harfbuzz) -lm \
+>     -o /tmp/fontconvert
+> ```
+> Distro versions (FreeType 2.13.2, HarfBuzz 8.3.0) differ from the pinned 2.13.3 / 2.6.7
+> but the APIs `fontconvert` uses are stable across them — builds clean and runs correctly.
+> If you instead need the normal CMake build to work, **GitHub and SourceForge mirrors are
+> reachable** (FreeType: `github.com/freetype/freetype` archive or `downloads.sourceforge.net`;
+> HarfBuzz: `github.com/harfbuzz/harfbuzz/releases`) and can be added as fallback `URL`s in
+> `freetype-hb/CMakeLists.txt` (no `URL_HASH` is pinned there, so swapping the URL is safe).
+
+### Variable-font weight (`-w`)
+Most Noto families are now variable-font-only on Google Fonts, and FreeType renders their
+**default instance** when no axis is selected — which is often very light (NotoSansJP defaults
+to Thin/100, NotoSerifKR to ExtraLight/200). Use `-w<N>` to pin the `wght` axis (e.g. `-w500`
+for Medium, `-w700` for Bold). Implemented via `FT_Get_MM_Var` / `FT_Set_Var_Design_Coordinates`
+in `fontconvert.c`; value is clamped to the axis range and ignored with a warning on non-variable
+fonts. The firmware's JP & KR ranges (`create_fonts.sh`) pass `-w500`.
+
 ### Architecture of `fontconvert.c`
 - `extract_range_ft()` — iterates a codepoint range, looks up each glyph with `FT_Get_Char_Index()`, renders via FreeType, calls `render_bitmap_to_bits()`
 - `shape_and_render_sequence()` — parses space/comma-separated hex codepoints, shapes them with `hb_shape()` (HarfBuzz), then renders the resulting glyph IDs through FreeType. Use this for any emoji that is multiple Unicode codepoints (ZWJ sequences, regional indicator flag pairs, skin-tone/gender modifier combos).
