@@ -18,6 +18,41 @@ cmake --build .
 cmake --install .   # installs to ~/.local/bin/fontconvert
 ```
 
+> **Claude Code on the web: the CMake build works, but only via fallback mirrors.**
+> The `ExternalProject` primary download hosts are blocked by the web session's network
+> policy: FreeType's `download.savannah.gnu.org` and HarfBuzz's `www.freedesktop.org`
+> **both return HTTP 403** (verified 2026-06-04). `freetype-hb/CMakeLists.txt` therefore
+> lists fallback `URL`s (CMake tries each in order): FreeType from SourceForge / GitHub,
+> HarfBuzz from GitHub *releases* (must be the release asset, not the source archive — the
+> Linux build runs `<SOURCE_DIR>/configure`, which only the release tarball ships). With
+> those in place the normal `cmake .. && cmake --build .` succeeds end-to-end.
+>   - The FreeType ExternalProjects also pass `-DFT_DISABLE_BZIP2=TRUE -DFT_DISABLE_BROTLI=TRUE`
+>     (alongside the existing ZLIB/PNG disables). Without them, FreeType auto-detects the
+>     distro's bzip2/brotli *headers* and references `BZ2_*` / `BrotliDecoderDecompress`, which
+>     aren't on the link line → final link fails. The tool needs none of these.
+>   - Don't conclude the toolchain is unavailable if a download 403s — check the mirror list.
+>
+> **Fast alternative — skip the ExternalProject, build against distro libs directly:**
+> ```bash
+> sudo apt-get install -y libfreetype-dev libharfbuzz-dev
+> cd fontconvert/src
+> gcc -O2 -I. $(pkg-config --cflags freetype2 harfbuzz) \
+>     cli.c dither.c font_render.c fontconvert.c \
+>     $(pkg-config --libs freetype2 harfbuzz) -lm \
+>     -o /tmp/fontconvert
+> ```
+> Distro versions (FreeType 2.13.2, HarfBuzz 8.3.0) differ from the pinned 2.13.3 / 2.6.7
+> but the APIs `fontconvert` uses are stable across them — builds clean and runs correctly.
+> Handy when you just need the binary quickly and don't want to wait on the full EP build.
+
+### Variable-font weight (`-w`)
+Most Noto families are now variable-font-only on Google Fonts, and FreeType renders their
+**default instance** when no axis is selected — which is often very light (NotoSansJP defaults
+to Thin/100, NotoSerifKR to ExtraLight/200). Use `-w<N>` to pin the `wght` axis (e.g. `-w500`
+for Medium, `-w700` for Bold). Implemented via `FT_Get_MM_Var` / `FT_Set_Var_Design_Coordinates`
+in `fontconvert.c`; value is clamped to the axis range and ignored with a warning on non-variable
+fonts. The firmware's JP & KR ranges (`create_fonts.sh`) pass `-w500`.
+
 ### Architecture of `fontconvert.c`
 - `extract_range_ft()` — iterates a codepoint range, looks up each glyph with `FT_Get_Char_Index()`, renders via FreeType, calls `render_bitmap_to_bits()`
 - `shape_and_render_sequence()` — parses space/comma-separated hex codepoints, shapes them with `hb_shape()` (HarfBuzz), then renders the resulting glyph IDs through FreeType. Use this for any emoji that is multiple Unicode codepoints (ZWJ sequences, regional indicator flag pairs, skin-tone/gender modifier combos).

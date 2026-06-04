@@ -14,6 +14,7 @@ typedef struct settings {
 	int size;
 	int height;
 	int max_width;
+	int weight;
 	int offset;
 	int render_mode;
 	int dump_codepoints;

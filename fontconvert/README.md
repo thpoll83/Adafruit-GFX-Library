@@ -63,6 +63,7 @@ each shaped in its own HarfBuzz call.
 | `-e<N>` | Exposure bias before dithering (−1.0 to 1.0, default 0.0) |
 | `-r<N>` | Render-size override in pixels (useful for bitmap-only fonts like NotoColorEmoji) |
 | `-W<N>` | Maximum rendered width in pixels; glyph is scaled down if wider |
+| `-w<N>` | Variable-font weight: pin the `wght` axis to N (e.g. `500` Medium, `700` Bold). Many Noto families ship variable-only and default to a light instance (NotoSansJP defaults to Thin/100, NotoSerifKR to ExtraLight/200) — use `-w` to select a usable weight. Clamped to the axis range; ignored with a warning on non-variable fonts |
 | `-o<N>` / `-n<N>` | Positive / negative offset added to codepoints in the output struct |
 | `-S <seq>` | HarfBuzz sequence: `"G[,G]..."` where G = space-separated hex codepoints |
 | `-d` | Dump all codepoints in the font and exit |
