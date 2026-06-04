@@ -52,7 +52,7 @@ FontSettings s = {
 	.size = 12,
 	.height = 0,
 	.max_width = 0,
-	.weight = 0,
+	.weight = -1,
 	.offset = 0,
 	.render_mode = 0,
 	.dump_codepoints = 0,
@@ -158,11 +158,20 @@ int main(int argc, char *argv[]) {
 	// Pin the 'wght' variation axis when -w is given.  Google Fonts now ships
 	// most Noto families as variable fonts only; without this FreeType renders
 	// their default instance (usually Regular/400), so e.g. -w500 selects Medium.
-	if (s.weight > 0) {
+	// s.weight defaults to -1 (unset); >= 0 means -w was supplied (incl. -w0,
+	// which clamps to the axis minimum below).
+	if (s.weight >= 0) {
 		if (FT_HAS_MULTIPLE_MASTERS(face)) {
 			FT_MM_Var *mm = NULL;
 			if (FT_Get_MM_Var(face, &mm) == 0 && mm) {
 				FT_Fixed *coords = malloc(mm->num_axis * sizeof(FT_Fixed));
+				if (!coords) {
+					fprintf(stderr, "Error: out of memory applying -w%d\n",
+					        s.weight);
+					FT_Done_MM_Var(library, mm);
+					FT_Done_FreeType(library);
+					return 1;
+				}
 				int found = 0;
 				for (FT_UInt a = 0; a < mm->num_axis; ++a) {
 					coords[a] = mm->axis[a].def;
