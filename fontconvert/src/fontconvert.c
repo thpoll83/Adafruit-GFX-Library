@@ -58,6 +58,7 @@ FontSettings s = {
 	.render_mode = 0,
 	.dump_codepoints = 0,
 	.sequence = NULL,
+	.seq_first = 0,
 	.dither_mode = DITHER_FLOYD_STEINBERG,
 	.exposure = 0.0f,
 	.contrast = 1.0f,
@@ -300,7 +301,7 @@ int main(int argc, char *argv[]) {
 		else
 			face->size->metrics.height = (uint8_t)(face->size->metrics.height >> 6);
 		printf("  0x%02X, // first\n  0x%02X, // last\n  %ld   //height\n };\n\n",
-		       0, seq_count - 1, face->size->metrics.height);
+		       s.seq_first, s.seq_first + seq_count - 1, face->size->metrics.height);
 		printf("// Approx. %d bytes\n", bitmapOffset + seq_count * 7 + 7);
 
 	} else {

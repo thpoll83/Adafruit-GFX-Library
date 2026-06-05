@@ -53,6 +53,22 @@ for Medium, `-w700` for Bold). Implemented via `FT_Get_MM_Var` / `FT_Set_Var_Des
 in `fontconvert.c`; value is clamped to the axis range and ignored with a warning on non-variable
 fonts. The firmware's JP & KR ranges (`create_fonts.sh`) pass `-w500`.
 
+### Sequence base codepoint (`-F`) and colour-glyph outline (`-O`)
+`-F<cp>` sets the emitted `GFXfont`'s `first` in **sequence (`-S`) mode** to `cp`
+(default 0), with `last = cp + count - 1` — so HarfBuzz-shaped sequences (flags,
+ZWJ emoji) get a stable codepoint range (e.g. a Private-Use base `-F0xE000`)
+instead of the synthetic indices `0..N-1`, which collide with control codes when
+the firmware renders them as text. PolyKybd's language-layer flags use this (see
+`qmk_firmware/.../fonts/gen-lang-fonts.sh`).
+
+`-O<N>` on **colour (BGRA) glyphs** draws an N-pixel border on the *inside* of
+the alpha boundary, so `-O1` is a true 1px outline (not the old two-sided ~2px
+band); it outlines the flag on a dark background and seals the white-flag
+dithering fringe (JP, KR). Colour strikes (NotoColorEmoji) render at a fixed
+native size that `-r`/`-W` then shrinks, so `font_render.c` rescales the glyph
+metrics (advance/left/top) to the emitted bitmap — without it a downscaled colour
+glyph reports a ~5× too-large `xAdvance`/`yOffset`.
+
 ### Architecture of `fontconvert.c`
 - `extract_range_ft()` — iterates a codepoint range, looks up each glyph with `FT_Get_Char_Index()`, renders via FreeType, calls `render_bitmap_to_bits()`
 - `shape_and_render_sequence()` — parses space/comma-separated hex codepoints, shapes them with `hb_shape()` (HarfBuzz), then renders the resulting glyph IDs through FreeType. Use this for any emoji that is multiple Unicode codepoints (ZWJ sequences, regional indicator flag pairs, skin-tone/gender modifier combos).

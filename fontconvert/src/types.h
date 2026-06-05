@@ -22,6 +22,13 @@ typedef struct settings {
 	int render_mode;
 	int dump_codepoints;
 	char *sequence;
+	int seq_first;  /* base codepoint for the emitted GFXfont in sequence (-S)
+	                   mode: `first` is set to this value (default 0) and `last`
+	                   to first + glyph_count - 1.  Lets HarfBuzz-shaped
+	                   sequences (flags, ZWJ emoji) be addressed at a stable
+	                   codepoint range (e.g. a Private-Use base) instead of the
+	                   synthetic indices 0..N-1, which collide with control
+	                   codes when the consumer renders them as text. */
 	DitherMode dither_mode;
 	float exposure;
 	float contrast;

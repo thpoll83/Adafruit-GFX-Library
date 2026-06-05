@@ -54,7 +54,7 @@ void print_usage(char *argv[]) {
 	fprintf(stderr,
 	        "usage: %s -f FONTFILE [-s SIZE] [-v VARIANT] [-g] [-r H] [-W W] [-w WGHT]\n"
 	        "       %*s [-D MODE] [-e EXPOSURE] [-c CONTRAST] [-o OFFSET|-n OFFSET] [-b BITS]\n"
-	        "       %*s [-S \"G[,G]...\" | RANGES]\n"
+	        "       %*s [-S \"G[,G]...\" [-F CP] | RANGES]\n"
 	        "       where G = space-separated hex codepoints for one glyph\n",
 	        argv[0], (int)strlen(argv[0]), "", (int)strlen(argv[0]), "");
 	fprintf(stderr, "  Using FreeType Version %d.%d.%d\n\n", FREETYPE_MAJOR,
@@ -157,6 +157,14 @@ void print_usage(char *argv[]) {
 	        "                   -S \"1F3F3 FE0F 200D 1F308\"         rainbow flag (ZWJ)\n"
 	        "                   -S \"1F600, 1F601, 1F602\"           3 separate emoji\n");
 	fprintf(stderr,
+		        "    -F CP     Base codepoint for the emitted GFXfont in -S (sequence)\n"
+		        "              mode: `first` = CP (default 0), `last` = CP + count - 1.\n"
+		        "              Use a Private-Use base (e.g. -F0xE000) so the shaped\n"
+		        "              glyphs get a stable codepoint range instead of the\n"
+		        "              synthetic indices 0..N-1 (which collide with control\n"
+		        "              codes such as newline/tab/CR when rendered as text).\n"
+		        "              Ignored in range mode.\n");
+	fprintf(stderr,
 	        "    -O N      Outline thickness in pixels (default: 0 = disabled).\n"
 	        "              Morphological dilation: every dark pixel within N pixels\n"
 	        "              (Chebyshev distance) of any lit pixel is set lit.  The\n"
@@ -165,7 +173,11 @@ void print_usage(char *argv[]) {
 	        "              bounding box.  Useful for glyphs with fine dark features\n"
 	        "              (e.g. thin stripes in country flags) that need thickening\n"
 	        "              to remain visible at small display sizes.  Glyph\n"
-	        "              dimensions are not changed.\n");
+	        "              dimensions are not changed.  For color (BGRA) glyphs -O\n"
+		        "              instead draws an N-pixel border just INSIDE the alpha\n"
+		        "              boundary (-O1 = a true 1px outline), which outlines the\n"
+		        "              glyph on a dark background and seals the dithering fringe\n"
+		        "              on white flags (JP, KR).\n");
 	fprintf(stderr,
 	        "    -d        Dump all codepoints (and variant selectors) present in\n"
 	        "              the font to stderr, then exit without generating output.\n");
@@ -206,7 +218,7 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 	if (argc <= 1)
 		return -1;
 
-	while ((opt = getopt(argc, argv, "dgs:f:v:r:o:n:S:W:w:D:e:c:G:B:U:O:b:")) != -1) {
+	while ((opt = getopt(argc, argv, "dgs:f:v:r:o:n:S:W:w:D:e:c:G:B:U:O:b:F:")) != -1) {
 		switch (opt) {
 		case 's':
 			if (!optarg) { printf("Missing value for argument s!\n"); return -1; }
@@ -253,6 +265,11 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 		case 'S':
 			if (!optarg) { printf("Missing value for argument S!\n"); return -1; }
 			s.sequence = strdup(optarg);
+			break;
+
+		case 'F':
+			if (!optarg) { printf("Missing value for argument F!\n"); return -1; }
+			s.seq_first = to_int(optarg);
 			break;
 
 		case 'W':
