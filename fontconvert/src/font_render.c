@@ -138,7 +138,7 @@ int extract_range_ft(GFXglyph *table, glyph_name *names, FT_Face face,
 		if (out_w != (int)bitmap->width || out_h != (int)bitmap->rows) {
 			table[table_idx].xAdvance = scale_metric(table[table_idx].xAdvance, out_w, (int)bitmap->width);
 			table[table_idx].xOffset  = scale_metric(rec->left, out_w, (int)bitmap->width);
-			table[table_idx].yOffset  = 1 - scale_metric(rec->top, out_h, (int)bitmap->rows);
+			table[table_idx].yOffset  = scale_metric(1 - rec->top, out_h, (int)bitmap->rows);
 		}
 
 		int n = (out_w * out_h) & 7;
@@ -257,7 +257,7 @@ static int shape_render_group(GFXglyph *table, glyph_name *names,
 		if (out_w != (int)bitmap->width || out_h != (int)bitmap->rows) {
 			table[*written].xAdvance = scale_metric(table[*written].xAdvance, out_w, (int)bitmap->width);
 			table[*written].xOffset  = scale_metric(rec->left, out_w, (int)bitmap->width);
-			table[*written].yOffset  = 1 - scale_metric(rec->top, out_h, (int)bitmap->rows);
+			table[*written].yOffset  = scale_metric(1 - rec->top, out_h, (int)bitmap->rows);
 		}
 
 		int n = (out_w * out_h) & 7;

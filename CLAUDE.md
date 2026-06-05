@@ -80,7 +80,7 @@ glyph reports a ~5× too-large `xAdvance`/`yOffset`.
 `GFXfont` / `GFXglyph` structs in `gfxfont.h`:
 - Bitmap array: 1-bit packed, no per-scanline padding, byte-padded per glyph
 - Glyph array: `{ bitmapOffset, width, height, xAdvance, xOffset, yOffset }`
-- Font struct: `{ *bitmap, *glyphs, first, last, yAdvance }` — range mode uses actual codepoints for `first`/`last`; sequence mode uses `0` / `glyph_count-1`
+- Font struct: `{ *bitmap, *glyphs, first, last, yAdvance }` — range mode uses actual codepoints for `first`/`last`; sequence mode uses `first` = the `-F` base codepoint (default 0) and `last` = `first + glyph_count - 1`
 
 ### Tests (`fontconvert/tests/`)
 ```bash
