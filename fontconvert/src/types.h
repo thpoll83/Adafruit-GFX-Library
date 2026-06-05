@@ -16,6 +16,9 @@ typedef struct settings {
 	int max_width;
 	int weight;
 	int offset;
+	int bits;       /* codepoint width of the emitted GFXfont first/last:
+	                   16 (default) or 32. 32 allows SMP codepoints (> 0xFFFF)
+	                   to be written directly, with no -n PUA shift. */
 	int render_mode;
 	int dump_codepoints;
 	char *sequence;

@@ -21,8 +21,10 @@ typedef struct {
 typedef struct {
   uint8_t *bitmap;  ///< Glyph bitmaps, concatenated
   GFXglyph *glyph;  ///< Glyph array
-  uint16_t first;   ///< ASCII extents (first char)
-  uint16_t last;    ///< ASCII extents (last char)
+  uint32_t first;   ///< Unicode codepoint extents (first char) — 32-bit so SMP
+                    ///< codepoints (> 0xFFFF, e.g. emoji) are stored directly
+                    ///< without shifting into the BMP Private Use Area
+  uint32_t last;    ///< Unicode codepoint extents (last char)
   uint8_t yAdvance; ///< Newline distance (y axis)
 } GFXfont;
 

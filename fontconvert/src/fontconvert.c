@@ -54,6 +54,7 @@ FontSettings s = {
 	.max_width = 0,
 	.weight = -1,
 	.offset = 0,
+	.bits = 16,
 	.render_mode = 0,
 	.dump_codepoints = 0,
 	.sequence = NULL,
@@ -115,6 +116,34 @@ int main(int argc, char *argv[]) {
 		total_num = range_count(&ranges[0]);
 	}
 	int last_range = s.num_ranges - 1;
+
+	// Codepoint-range guard.  The GFXfont first/last fields hold the real Unicode
+	// codepoint.  An -o/-n offset that drives an emitted codepoint below 0 would
+	// wrap when stored in the unsigned fields, and in the default 16-bit mode a
+	// codepoint above 0xFFFF almost certainly means a forgotten -b32 (historically
+	// such ranges were squeezed into the BMP Private Use Area with -n0x10000).
+	// Refuse rather than silently emit a value the consumer cannot index.
+	// Sequence mode emits small synthetic indices, so it is exempt.
+	if (!s.sequence) {
+		long emit_first = (long)ranges[0].first + s.offset;
+		long emit_last  = (long)ranges[last_range].last + s.offset;
+		if (emit_first < 0 || emit_last < 0) {
+			fprintf(stderr,
+			        "Error: -o/-n offset drives an emitted codepoint below 0 "
+			        "(first=%ld, last=%ld).\n", emit_first, emit_last);
+			free(ranges);
+			return 1;
+		}
+		if (s.bits != 32 && (emit_first > 0xFFFF || emit_last > 0xFFFF)) {
+			fprintf(stderr,
+			        "Error: emitted codepoint 0x%lX exceeds 0xFFFF in 16-bit mode.\n"
+			        "       Pass -b32 to store SMP codepoints directly (recommended),\n"
+			        "       or keep the legacy -n offset to map them into the BMP PUA.\n",
+			        emit_last > 0xFFFF ? emit_last : emit_first);
+			free(ranges);
+			return 1;
+		}
+	}
 
 	if ((err = FT_Init_FreeType(&library))) {
 		fprintf(stderr, "FreeType init error: %d", err);
