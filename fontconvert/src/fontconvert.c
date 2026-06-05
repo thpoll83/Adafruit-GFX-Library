@@ -117,16 +117,24 @@ int main(int argc, char *argv[]) {
 	}
 	int last_range = s.num_ranges - 1;
 
-	// 16-bit guard: the GFXfont first/last fields hold the real Unicode
-	// codepoint.  In the default 16-bit mode an emitted codepoint that exceeds
-	// 0xFFFF almost certainly means a forgotten -b32 (or a stray -o/-n offset) —
-	// historically such ranges were squeezed into the BMP Private Use Area with
-	// -n0x10000.  Refuse rather than silently emit an SMP value a 16-bit consumer
-	// cannot index.  Sequence mode emits small synthetic indices, so it is exempt.
-	if (!s.sequence && s.bits != 32) {
+	// Codepoint-range guard.  The GFXfont first/last fields hold the real Unicode
+	// codepoint.  An -o/-n offset that drives an emitted codepoint below 0 would
+	// wrap when stored in the unsigned fields, and in the default 16-bit mode a
+	// codepoint above 0xFFFF almost certainly means a forgotten -b32 (historically
+	// such ranges were squeezed into the BMP Private Use Area with -n0x10000).
+	// Refuse rather than silently emit a value the consumer cannot index.
+	// Sequence mode emits small synthetic indices, so it is exempt.
+	if (!s.sequence) {
 		long emit_first = (long)ranges[0].first + s.offset;
 		long emit_last  = (long)ranges[last_range].last + s.offset;
-		if (emit_first > 0xFFFF || emit_last > 0xFFFF) {
+		if (emit_first < 0 || emit_last < 0) {
+			fprintf(stderr,
+			        "Error: -o/-n offset drives an emitted codepoint below 0 "
+			        "(first=%ld, last=%ld).\n", emit_first, emit_last);
+			free(ranges);
+			return 1;
+		}
+		if (s.bits != 32 && (emit_first > 0xFFFF || emit_last > 0xFFFF)) {
 			fprintf(stderr,
 			        "Error: emitted codepoint 0x%lX exceeds 0xFFFF in 16-bit mode.\n"
 			        "       Pass -b32 to store SMP codepoints directly (recommended),\n"
