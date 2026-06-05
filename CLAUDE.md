@@ -85,11 +85,14 @@ Color emoji (`TestColorEmoji`) and flag sequence (`test_flag_sequence_via_harfbu
 
 ## Firmware font generation (consumer)
 
-The PolyKybd firmware uses `fontconvert` to generate `.h` font headers consumed by `keyboards/handwired/polykybd/base/fonts/`. Generation scripts live in the firmware repo:
+The PolyKybd firmware uses `fontconvert` to generate `.h` font headers consumed by `keyboards/handwired/polykybd/base/fonts/`. Generation is **config-driven** and lives in the firmware repo (`fontconvert` itself stays a focused single-font tool — it does **not** read the config):
 
-- `qmk_firmware/keyboards/handwired/polykybd/fonts/dl-fonts.sh` — downloads Noto fonts
-- `qmk_firmware/keyboards/handwired/polykybd/create_fonts.sh` — invokes `fontconvert` for each character range, writes `.h` files to `base/fonts/generated/`
-- `base/fonts/gfx_used_fonts.h` — auto-generated index of all `.h` files, builds `ALL_FONTS[]` array
+- `qmk_firmware/keyboards/handwired/polykybd/fonts/fonts.yaml` — single source of truth: an ordered list of font entries (font file, size, variant, ranges, weight, bits, …) grouped into categories. List order = `ALL_FONTS[]` priority.
+- `qmk_firmware/keyboards/handwired/polykybd/fonts/generate_fonts.py` — reads the YAML, invokes `fontconvert` once per entry, writes one header per category to `base/fonts/generated/`, and composes `base/fonts/gfx_used_fonts.h` (the `ALL_FONTS[]` table). `--check` mode flags stale headers for CI.
+- `qmk_firmware/keyboards/handwired/polykybd/fonts/dl-fonts.sh` — downloads Noto fonts.
+- `create_fonts.sh` is now a thin deprecated wrapper forwarding to `generate_fonts.py`.
+
+**Byte-reproducibility note:** the firmware's committed headers are built with the **pinned** `fontconvert` (FreeType 2.13.3 / HarfBuzz 2.6.7 — the CMake ExternalProject below). The distro fast-path build (2.13.2 / 8.3.0) renders a handful of glyphs ~1px differently, so use the pinned build to regenerate without spurious diffs.
 
 ## Key notes
 
