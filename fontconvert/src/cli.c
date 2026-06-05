@@ -53,7 +53,7 @@ int range_count(const ch_range *range) {
 void print_usage(char *argv[]) {
 	fprintf(stderr,
 	        "usage: %s -f FONTFILE [-s SIZE] [-v VARIANT] [-g] [-r H] [-W W] [-w WGHT]\n"
-	        "       %*s [-D MODE] [-e EXPOSURE] [-c CONTRAST] [-o OFFSET|-n OFFSET]\n"
+	        "       %*s [-D MODE] [-e EXPOSURE] [-c CONTRAST] [-o OFFSET|-n OFFSET] [-b BITS]\n"
 	        "       %*s [-S \"G[,G]...\" | RANGES]\n"
 	        "       where G = space-separated hex codepoints for one glyph\n",
 	        argv[0], (int)strlen(argv[0]), "", (int)strlen(argv[0]), "");
@@ -137,6 +137,13 @@ void print_usage(char *argv[]) {
 	        "    -n N      Subtract N from every codepoint written into the output\n"
 	        "              struct (takes priority over -o)\n");
 	fprintf(stderr,
+	        "    -b N      Codepoint width of the emitted GFXfont first/last: 16\n"
+	        "              (default) or 32.  Use -b32 for SMP ranges (codepoints\n"
+	        "              > 0xFFFF, e.g. emoji at 0x1F600) so the real codepoint is\n"
+	        "              written directly — no -n PUA shift needed.  In 16-bit mode\n"
+	        "              a codepoint that would exceed 0xFFFF is a hard error\n"
+	        "              (catches a forgotten -b32 or a stray offset).\n");
+	fprintf(stderr,
 	        "    -S \"...\"  Sequence of hex codepoints shaped by HarfBuzz.\n"
 	        "              When -S is given, RANGES are ignored.\n"
 	        "              Syntax:\n"
@@ -199,7 +206,7 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 	if (argc <= 1)
 		return -1;
 
-	while ((opt = getopt(argc, argv, "dgs:f:v:r:o:n:S:W:w:D:e:c:G:B:U:O:")) != -1) {
+	while ((opt = getopt(argc, argv, "dgs:f:v:r:o:n:S:W:w:D:e:c:G:B:U:O:b:")) != -1) {
 		switch (opt) {
 		case 's':
 			if (!optarg) { printf("Missing value for argument s!\n"); return -1; }
@@ -314,6 +321,16 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 			if (!optarg) { printf("Missing value for argument O!\n"); return -1; }
 			s.outline = to_int(optarg);
 			if (s.outline < 0) s.outline = 0;
+			break;
+
+		case 'b':
+			if (!optarg) { printf("Missing value for argument b!\n"); return -1; }
+			s.bits = to_int(optarg);
+			if (s.bits != 16 && s.bits != 32) {
+				fprintf(stderr, "Invalid -b %d: codepoint width must be 16 or 32\n",
+				        s.bits);
+				return -1;
+			}
 			break;
 
 		case '?':
