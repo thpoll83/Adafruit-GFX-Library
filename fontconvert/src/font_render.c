@@ -19,6 +19,16 @@
 
 #define DPI 141
 
+// Scale a glyph metric (advance / left / top) that FreeType reported at a font's
+// native size so it tracks a bitmap that -r/-W has since downscaled.  num/den =
+// emitted/native dimension.  Rounds half away from zero so small offsets don't
+// collapse to 0.
+static int scale_metric(int v, int num, int den) {
+	if (den == 0 || num == den) return v;
+	double r = (double)v * (double)num / (double)den;
+	return (int)(r + (r >= 0 ? 0.5 : -0.5));
+}
+
 // For outline fonts use FT_Set_Char_Size; for bitmap-only faces (e.g. CBDT/CBLC
 // color emoji) select the strike whose y_ppem is closest to the requested size.
 void setup_face_size(FT_Face face) {
@@ -121,6 +131,15 @@ int extract_range_ft(GFXglyph *table, glyph_name *names, FT_Face face,
 		render_bitmap_to_bits(bitmap, &out_w, &out_h);
 		table[table_idx].width = out_w;
 		table[table_idx].height = out_h;
+
+		// A color strike (NotoColorEmoji etc.) renders at a fixed native size that
+		// -r/-W then shrinks; FreeType still reports advance/left/top at the native
+		// size, so rescale the metrics to the emitted bitmap.
+		if (out_w != (int)bitmap->width || out_h != (int)bitmap->rows) {
+			table[table_idx].xAdvance = scale_metric(table[table_idx].xAdvance, out_w, (int)bitmap->width);
+			table[table_idx].xOffset  = scale_metric(rec->left, out_w, (int)bitmap->width);
+			table[table_idx].yOffset  = scale_metric(1 - rec->top, out_h, (int)bitmap->rows);
+		}
 
 		int n = (out_w * out_h) & 7;
 		if (n) { n = 8 - n; while (n--) enbit(0); }
@@ -233,6 +252,13 @@ static int shape_render_group(GFXglyph *table, glyph_name *names,
 		render_bitmap_to_bits(bitmap, &out_w, &out_h);
 		table[*written].width  = out_w;
 		table[*written].height = out_h;
+
+		// See extract_range_ft: rescale color-strike metrics to the shrunk bitmap.
+		if (out_w != (int)bitmap->width || out_h != (int)bitmap->rows) {
+			table[*written].xAdvance = scale_metric(table[*written].xAdvance, out_w, (int)bitmap->width);
+			table[*written].xOffset  = scale_metric(rec->left, out_w, (int)bitmap->width);
+			table[*written].yOffset  = scale_metric(1 - rec->top, out_h, (int)bitmap->rows);
+		}
 
 		int n = (out_w * out_h) & 7;
 		if (n) { n = 8 - n; while (n--) enbit(0); }

@@ -7,3 +7,5 @@ html
 fontconvert/.idea
 fontconvert/cmake-build-debug
 fontconvert/cmake-build-release
+__pycache__/
+fontconvert/tests/font_test_output

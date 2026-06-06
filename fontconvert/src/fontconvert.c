@@ -58,6 +58,7 @@ FontSettings s = {
 	.render_mode = 0,
 	.dump_codepoints = 0,
 	.sequence = NULL,
+	.seq_first = 0,
 	.dither_mode = DITHER_FLOYD_STEINBERG,
 	.exposure = 0.0f,
 	.contrast = 1.0f,
@@ -299,8 +300,22 @@ int main(int argc, char *argv[]) {
 			face->size->metrics.height = table[0].height;
 		else
 			face->size->metrics.height = (uint8_t)(face->size->metrics.height >> 6);
-		printf("  0x%02X, // first\n  0x%02X, // last\n  %ld   //height\n };\n\n",
-		       0, seq_count - 1, face->size->metrics.height);
+		long seq_first = (long)s.seq_first;
+		long seq_last  = seq_first + (long)seq_count - 1;
+		if (seq_first < 0 || seq_last < 0) {
+			fprintf(stderr, "Error: -F base codepoint yields a negative emitted "
+			        "codepoint (first=%ld, last=%ld).\n", seq_first, seq_last);
+			FT_Done_FreeType(library);
+			return 1;
+		}
+		if (s.bits != 32 && seq_last > 0xFFFF) {
+			fprintf(stderr, "Error: sequence emitted codepoint 0x%lX exceeds 0xFFFF "
+			        "in 16-bit mode — pass -b32 or a smaller -F base.\n", seq_last);
+			FT_Done_FreeType(library);
+			return 1;
+		}
+		printf("  0x%02lX, // first\n  0x%02lX, // last\n  %ld   //height\n };\n\n",
+		       seq_first, seq_last, face->size->metrics.height);
 		printf("// Approx. %d bytes\n", bitmapOffset + seq_count * 7 + 7);
 
 	} else {

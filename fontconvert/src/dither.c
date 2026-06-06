@@ -259,17 +259,20 @@ void apply_dithering(float *gray, int width, int rows) {
 	}
 }
 
-// For BGRA bitmaps: apply a two-sided border around the alpha content boundary.
+// For BGRA bitmaps: draw a t-pixel border on the *inside* of the alpha content
+// boundary — content pixels within t steps of a non-content pixel (or the bbox
+// edge) are forced lit.  So -O1 yields a genuine 1-pixel border, -O2 a 2-pixel
+// one (an earlier version also lit the outer ring in the transparent background,
+// which made -O1 read as ~2px on screen).
 //
-// Outer ring: non-content pixels within t steps of a content pixel → lit.
-//   Creates a bright halo in the transparent background.
-//
-// Inner ring: content pixels within t steps of a non-content pixel → lit.
-//   Seals dithering gaps at the alpha boundary.  Near the wavy edge of a flag,
-//   bilinear scaling can produce semi-transparent pixels whose composited gray
-//   value falls just below the dithering threshold, leaving a dark fringe inside
-//   the alpha mask.  Forcing those pixels lit closes the gap between flag content
-//   and the outer halo (critical for white-background flags like JP and KR).
+// This single inner ring does double duty:
+//   * It is the visible outline — a crisp 1px edge that separates the flag from
+//     the (black) keycap background even when the flag's own edge is dark.
+//   * It seals dithering gaps at the alpha boundary.  Near the wavy edge of a
+//     flag, bilinear scaling can produce semi-transparent pixels whose composited
+//     gray value falls just below the dithering threshold, leaving a dark fringe
+//     inside the alpha mask.  Forcing those edge pixels lit closes that fringe
+//     (critical for white-background flags like JP and KR).
 static void alpha_content_outline(uint8_t *buf, FT_Bitmap *bitmap,
                                   int out_w, int out_h, int t) {
 	int src_w = (int)bitmap->width;
@@ -319,7 +322,8 @@ static void alpha_content_outline(uint8_t *buf, FT_Bitmap *bitmap,
 					if (n_content != is_content) near_other = 1;
 				}
 			}
-			if (near_other)
+			// Inner ring only: light content-side edge pixels → 1px border.
+			if (is_content && near_other)
 				buf[idx >> 3] |= 0x80 >> (idx & 7);
 		}
 	}
