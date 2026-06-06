@@ -54,7 +54,7 @@ void print_usage(char *argv[]) {
 	fprintf(stderr,
 	        "usage: %s -f FONTFILE [-s SIZE] [-v VARIANT] [-g] [-r H] [-W W] [-w WGHT]\n"
 	        "       %*s [-D MODE] [-e EXPOSURE] [-c CONTRAST] [-o OFFSET|-n OFFSET] [-b BITS]\n"
-	        "       %*s [-S \"G[,G]...\" [-F CP] | RANGES]\n"
+	        "       %*s [-S \"G[,G]...\" [-F CP] [-C] | RANGES]\n"
 	        "       where G = space-separated hex codepoints for one glyph\n",
 	        argv[0], (int)strlen(argv[0]), "", (int)strlen(argv[0]), "");
 	fprintf(stderr, "  Using FreeType Version %d.%d.%d\n\n", FREETYPE_MAJOR,
@@ -165,6 +165,15 @@ void print_usage(char *argv[]) {
 		        "              codes such as newline/tab/CR when rendered as text).\n"
 		        "              Ignored in range mode.\n");
 	fprintf(stderr,
+	        "    -C        Composite mode for -S (sequence): composite ALL glyphs of\n"
+	        "              each comma-separated group into ONE bitmap using HarfBuzz\n"
+	        "              GPOS positions, emitting a single glyph per group.  Use for\n"
+	        "              base+mark clusters that should render as one unit, e.g. a\n"
+	        "              dotted-circle U+25CC plus an isolated combining mark:\n"
+	        "                -S \"25CC 0902, 25CC 093F\" -F0xE100 -C\n"
+	        "              The mark is attached to the dotted circle exactly as in the\n"
+	        "              Unicode charts.  Mono render path only (no -g).\n");
+	fprintf(stderr,
 	        "    -O N      Outline thickness in pixels (default: 0 = disabled).\n"
 	        "              Morphological dilation: every dark pixel within N pixels\n"
 	        "              (Chebyshev distance) of any lit pixel is set lit.  The\n"
@@ -218,7 +227,7 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 	if (argc <= 1)
 		return -1;
 
-	while ((opt = getopt(argc, argv, "dgs:f:v:r:o:n:S:W:w:D:e:c:G:B:U:O:b:F:")) != -1) {
+	while ((opt = getopt(argc, argv, "dgCs:f:v:r:o:n:S:W:w:D:e:c:G:B:U:O:b:F:")) != -1) {
 		switch (opt) {
 		case 's':
 			if (!optarg) { printf("Missing value for argument s!\n"); return -1; }
@@ -256,6 +265,10 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 
 		case 'g':
 			s.render_mode = 1;
+			break;
+
+		case 'C':
+			s.composite = 1;
 			break;
 
 		case 'd':

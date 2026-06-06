@@ -36,6 +36,13 @@ typedef struct settings {
 	float saturation_boost;
 	float sharpness;
 	int outline;
+	int composite;  /* sequence (-S) mode: when set (-C), composite ALL glyphs of
+	                   each comma-separated group into ONE bitmap using HarfBuzz
+	                   GPOS positions, emitting a single GFXglyph per group.  Lets a
+	                   base+mark cluster (e.g. dotted-circle U+25CC + a Devanagari
+	                   matra) render as one addressable glyph with the mark correctly
+	                   attached, instead of separate side-by-side glyphs.  Mono path
+	                   only. */
 } FontSettings;
 
 typedef struct ch_range {

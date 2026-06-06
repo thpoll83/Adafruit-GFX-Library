@@ -1,4 +1,5 @@
 #include <limits.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -292,6 +293,199 @@ int shape_and_render_sequence(GFXglyph *table, glyph_name *names, FT_Face face,
 	while (group) {
 		shape_render_group(table, names, hb_font, face,
 		                   group, group_idx, bitmapOffset, &written);
+		group = strtok_r(NULL, ",", &save_outer);
+		group_idx++;
+	}
+
+	free(input);
+	hb_font_destroy(hb_font);
+
+	if (written == 0) {
+		fprintf(stderr, "Error: no glyphs rendered from sequence '%s'\n", seq_str);
+		return -1;
+	}
+	return written;
+}
+
+// One captured mono glyph plus its device placement (baseline = 0, +y down).
+typedef struct {
+	uint8_t *bits;          // packed 1-bpp, row-major continuous, w*h bits
+	int w, h;
+	int devL, devT;         // top-left pixel position relative to the cluster origin
+} composed_glyph;
+
+// Composite one comma-separated group: shape it with HarfBuzz, render each glyph
+// MONO, then OR all glyphs into a single bitmap at their GPOS-derived pixel
+// positions.  Emits one GFXglyph into table[]/names[] and streams the composite
+// bits via enbit() (byte-padded, exactly like extract_range_ft).  *written is
+// advanced by one on success.
+static void composite_render_group(GFXglyph *table, glyph_name *names,
+                                   hb_font_t *hb_font, FT_Face face,
+                                   const char *group_str, int group_idx,
+                                   int *bitmapOffset, int *written) {
+	uint32_t cps[512];
+	int n_cp = 0;
+
+	char *cp_buf = strdup(group_str);
+	char *tok = strtok(cp_buf, " \t");
+	while (tok && n_cp < 512) {
+		char *end;
+		unsigned long v = strtoul(tok, &end, 16);
+		if (end != tok)
+			cps[n_cp++] = (uint32_t)v;
+		tok = strtok(NULL, " \t");
+	}
+	free(cp_buf);
+	if (n_cp == 0)
+		return;
+
+	hb_buffer_t *hb_buf = hb_buffer_create();
+	hb_buffer_set_content_type(hb_buf, HB_BUFFER_CONTENT_TYPE_UNICODE);
+	for (int i = 0; i < n_cp; i++)
+		hb_buffer_add(hb_buf, cps[i], i);
+	hb_buffer_set_direction(hb_buf, HB_DIRECTION_LTR);
+	hb_buffer_guess_segment_properties(hb_buf);
+	hb_shape(hb_font, hb_buf, NULL, 0);
+
+	unsigned int glyph_count;
+	hb_glyph_info_t     *gi = hb_buffer_get_glyph_infos(hb_buf, &glyph_count);
+	hb_glyph_position_t *gp = hb_buffer_get_glyph_positions(hb_buf, &glyph_count);
+	fprintf(stderr, "HarfBuzz: group[%d] %d codepoint(s) → %u glyph(s) [composite]\n",
+	        group_idx, n_cp, glyph_count);
+
+	composed_glyph *cg = (composed_glyph *)calloc(
+	    glyph_count ? glyph_count : 1, sizeof(composed_glyph));
+	if (!cg) { hb_buffer_destroy(hb_buf); return; }
+
+	double penx = 0.0, peny = 0.0;
+	int placed = 0;
+	for (unsigned int i = 0; i < glyph_count; i++) {
+		uint32_t gid = gi[i].codepoint;
+		if (FT_Load_Glyph(face, gid, FT_LOAD_TARGET_MONO)) {
+			fprintf(stderr, "Error loading glyph %u (group[%d] composite)\n",
+			        gid, group_idx);
+			continue;
+		}
+		if (face->glyph->format != FT_GLYPH_FORMAT_BITMAP)
+			if (FT_Render_Glyph(face->glyph, FT_RENDER_MODE_MONO)) {
+				fprintf(stderr, "Error rendering glyph %u (group[%d])\n",
+				        gid, group_idx);
+				continue;
+			}
+
+		FT_Bitmap *bm = &face->glyph->bitmap;
+		int w = (int)bm->width, h = (int)bm->rows;
+		// HarfBuzz x/y offsets and advances are in 26.6 fixed point (the FT size).
+		double gx = penx + gp[i].x_offset / 64.0;
+		double gy = peny - gp[i].y_offset / 64.0;     // HB +y is up; device +y is down
+		int devL = (int)lround(gx) + face->glyph->bitmap_left;
+		int devT = (int)lround(gy) - face->glyph->bitmap_top;
+		penx += gp[i].x_advance / 64.0;
+		peny -= gp[i].y_advance / 64.0;
+
+		if (w > 0 && h > 0) {
+			uint8_t *copy = (uint8_t *)calloc((w * h + 7) / 8, 1);
+			if (copy) {
+				int pos = 0;
+				for (int y = 0; y < h; y++)
+					for (int x = 0; x < w; x++, pos++)
+						if (bm->buffer[y * bm->pitch + (x >> 3)] & (0x80 >> (x & 7)))
+							copy[pos >> 3] |= 0x80 >> (pos & 7);
+				cg[placed].bits = copy;
+				cg[placed].w = w; cg[placed].h = h;
+				cg[placed].devL = devL; cg[placed].devT = devT;
+				placed++;
+			}
+		}
+	}
+	int total_adv = (int)lround(penx);
+	hb_buffer_destroy(hb_buf);
+
+	if (*written >= 2048) {
+		fprintf(stderr, "Warning: glyph table full (2048), skipping group %d\n",
+		        group_idx);
+		for (int k = 0; k < placed; k++) free(cg[k].bits);
+		free(cg);
+		return;
+	}
+
+	// Union bounding box of all placed glyphs.
+	int minL = 0, minT = 0, maxR = 0, maxB = 0, have = 0;
+	for (int k = 0; k < placed; k++) {
+		int l = cg[k].devL, t = cg[k].devT;
+		int r = l + cg[k].w, b = t + cg[k].h;
+		if (!have) { minL = l; minT = t; maxR = r; maxB = b; have = 1; }
+		else {
+			if (l < minL) minL = l;
+			if (t < minT) minT = t;
+			if (r > maxR) maxR = r;
+			if (b > maxB) maxB = b;
+		}
+	}
+	int CW = have ? (maxR - minL) : 0;
+	int CH = have ? (maxB - minT) : 0;
+
+	if (*bitmapOffset > 0xFFFF)
+		fprintf(stderr, "Warning: bitmapOffset %d exceeds uint16_t max for "
+		        "group[%d] — split into smaller sequences.\n", *bitmapOffset, group_idx);
+
+	table[*written].bitmapOffset = *bitmapOffset;
+	table[*written].width    = CW;
+	table[*written].height   = CH;
+	table[*written].xAdvance = total_adv;
+	table[*written].xOffset  = have ? minL : 0;
+	table[*written].yOffset  = have ? (1 + minT) : 0;   // GFX convention: 1 - top
+	snprintf(names[*written].name, sizeof(names[*written].name),
+	         "g%d_compose%u", group_idx, glyph_count);
+
+	if (have) {
+		uint8_t *canvas = (uint8_t *)calloc((CW * CH + 7) / 8, 1);
+		if (!canvas) {
+			for (int k = 0; k < placed; k++) free(cg[k].bits);
+			free(cg);
+			return;
+		}
+		for (int k = 0; k < placed; k++) {
+			int ox = cg[k].devL - minL, oy = cg[k].devT - minT;
+			int sp = 0;
+			for (int y = 0; y < cg[k].h; y++)
+				for (int x = 0; x < cg[k].w; x++, sp++)
+					if (cg[k].bits[sp >> 3] & (0x80 >> (sp & 7))) {
+						int cpos = (oy + y) * CW + (ox + x);
+						canvas[cpos >> 3] |= 0x80 >> (cpos & 7);
+					}
+		}
+		int nbits = CW * CH;
+		for (int i = 0; i < nbits; i++)
+			enbit((canvas[i >> 3] >> (7 - (i & 7))) & 1);
+		int n = nbits & 7;
+		if (n) { n = 8 - n; while (n--) enbit(0); }
+		*bitmapOffset += (nbits + 7) / 8;
+		free(canvas);
+	}
+
+	for (int k = 0; k < placed; k++) free(cg[k].bits);
+	free(cg);
+	(*written)++;
+}
+
+int composite_and_render_sequence(GFXglyph *table, glyph_name *names, FT_Face face,
+                                   const char *seq_str, int *bitmapOffset) {
+	if (!seq_str || !*seq_str) {
+		fprintf(stderr, "Error: empty -S sequence\n");
+		return -1;
+	}
+
+	setup_face_size(face);
+	hb_font_t *hb_font = hb_ft_font_create(face, NULL);
+
+	int written = 0, group_idx = 0;
+	char *input = strdup(seq_str);
+	char *save_outer = NULL;
+	char *group = strtok_r(input, ",", &save_outer);
+	while (group) {
+		composite_render_group(table, names, hb_font, face, group, group_idx,
+		                       bitmapOffset, &written);
 		group = strtok_r(NULL, ",", &save_outer);
 		group_idx++;
 	}

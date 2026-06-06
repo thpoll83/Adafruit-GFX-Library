@@ -16,3 +16,10 @@ int extract_range_ft(GFXglyph *table, glyph_name *names, FT_Face face,
 // and emit bitmap bits via enbit().  Returns the number of glyphs written, or -1.
 int shape_and_render_sequence(GFXglyph *table, glyph_name *names, FT_Face face,
                                const char *seq_str, int *bitmapOffset);
+
+// Like shape_and_render_sequence, but composite ALL glyphs of each comma-separated
+// group into a SINGLE 1-bit bitmap using HarfBuzz GPOS positions, emitting one
+// GFXglyph per group (the -C option).  Mono render path only.  Returns the number
+// of groups written, or -1.
+int composite_and_render_sequence(GFXglyph *table, glyph_name *names, FT_Face face,
+                                   const char *seq_str, int *bitmapOffset);
