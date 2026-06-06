@@ -66,6 +66,7 @@ FontSettings s = {
 	.saturation_boost = 0.0f,
 	.sharpness = 0.0f,
 	.outline = 0,
+	.composite = 0,
 };
 
 int main(int argc, char *argv[]) {
@@ -269,10 +270,14 @@ int main(int argc, char *argv[]) {
 
 	if (s.sequence) {
 		// SEQUENCE MODE: HarfBuzz shapes the codepoints, output single block
-		printf("/* sequence: %s */\nconst uint8_t %sBitmaps[] PROGMEM = {\n"
-		       "  /* shaped sequence */  ", s.sequence, fontName);
-		int seq_count = shape_and_render_sequence(table, names, face,
-		                                          s.sequence, &bitmapOffset);
+		printf("/* sequence%s: %s */\nconst uint8_t %sBitmaps[] PROGMEM = {\n"
+		       "  /* shaped sequence */  ",
+		       s.composite ? " (composite)" : "", s.sequence, fontName);
+		int seq_count = s.composite
+		    ? composite_and_render_sequence(table, names, face,
+		                                    s.sequence, &bitmapOffset)
+		    : shape_and_render_sequence(table, names, face,
+		                                s.sequence, &bitmapOffset);
 		printf("\n };\n\n");
 
 		if (seq_count <= 0) {
