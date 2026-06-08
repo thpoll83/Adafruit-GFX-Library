@@ -228,17 +228,36 @@ static void apply_unsharp_mask(float *gray, int width, int rows, float amount) {
 }
 
 void apply_dithering(float *gray, int width, int rows) {
-	// Per-glyph auto-levels: stretch [0, brightest] -> [0, 1] so a dark-colour
+	// Per-glyph auto-levels: stretch [0, bright] -> [0, 1] so a dark-colour
 	// glyph (whose luminance is low after BGRA->gray) uses the full range
 	// instead of dithering down to a few dots.  Black stays at 0, so transparent
 	// background and the keycap stay dark.
+	//
+	// The white point is the high-percentile brightness, NOT the absolute max:
+	// a lone hot pixel (e.g. a white sparkle on a dark object) would otherwise
+	// cap the gain and leave the body dark.  We take the value below which
+	// NORM_PCT% of pixels lie via a 256-bin histogram, so the brightest
+	// (100-NORM_PCT)% — the would-be outliers — clamp to white and the bulk of
+	// the glyph stretches.  For a glyph with a broad bright region this equals
+	// the max (no regression); it only differs when a tiny sliver is the peak.
 	if (s.normalize) {
-		float maxv = 0.0f;
-		for (int i = 0; i < width * rows; i++)
-			if (gray[i] > maxv) maxv = gray[i];
-		if (maxv > 1e-4f && maxv < 1.0f) {
-			float gain = 1.0f / maxv;
-			for (int i = 0; i < width * rows; i++) {
+		const float NORM_PCT = 99.0f;            // white point = 99th percentile
+		int total = width * rows;
+		int hist[256] = {0};
+		for (int i = 0; i < total; i++) {
+			int b = (int)(gray[i] * 255.0f + 0.5f);
+			hist[b < 0 ? 0 : (b > 255 ? 255 : b)]++;
+		}
+		int allow = (int)(total * (100.0f - NORM_PCT) / 100.0f); // outliers above ref
+		int acc = 0, refb = 0;
+		for (int b = 255; b >= 0; b--) {
+			acc += hist[b];
+			if (acc > allow) { refb = b; break; }
+		}
+		float ref = refb / 255.0f;
+		if (ref > 1e-4f && ref < 1.0f) {
+			float gain = 1.0f / ref;
+			for (int i = 0; i < total; i++) {
 				float v = gray[i] * gain;
 				gray[i] = v > 1.0f ? 1.0f : v;
 			}

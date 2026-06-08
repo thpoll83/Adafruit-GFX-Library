@@ -81,17 +81,19 @@ zero clipping. Implemented in `fontconvert.c` (the `emit_yadv` override in both 
 range- and sequence-mode footers); `-Y` does not rescale the bitmap.
 
 ### Per-glyph auto-levels (`-N`)
-`-N` normalizes each glyph independently *before* dithering: it finds the glyph's
-brightest pixel and scales the whole gray buffer so that pixel maps to white
-(`v /= max`), keeping black at 0 (skipped when the max is already ~1). Because the
-colour path composites BGRA over **black** (`gray = a*lum`), a dark-colour emoji
-(dark-red/purple face, eggplant, dark moon) has low luminance and would dither
-down to a few scattered dots; `-N` stretches it back to the full range so the
-shape reads. Implemented as the first step of `apply_dithering()` in `dither.c`,
-so `-G`/`-c`/`-e`/`-D` still act on the normalized values. PolyKybd's emoji
-category sets `normalize: true`. (v1 uses the absolute max; a lone hot pixel —
-e.g. a white sparkle on a dark object — would limit the gain. A high-percentile
-max would be the refinement if that shows up.)
+`-N` normalizes each glyph independently *before* dithering so that a chosen
+**white point** maps to white (`v /= ref`), keeping black at 0 (skipped when the
+ref is already ~1). Because the colour path composites BGRA over **black**
+(`gray = a*lum`), a dark-colour emoji (dark-red/purple face, eggplant, dark moon)
+has low luminance and would dither down to a few scattered dots; `-N` stretches
+it back to the full range so the shape reads. The white point is the **99th
+percentile** brightness (256-bin histogram), not the absolute max, so a lone hot
+pixel — e.g. a white sparkle on a dark object — can't cap the gain and leave the
+body dark; the brightest ~1% clamp to white and the bulk stretches. For a glyph
+with a broad bright region the 99th percentile equals the max (no regression);
+the `NORM_PCT` constant in `dither.c` tunes it. Implemented as the first step of
+`apply_dithering()`, so `-G`/`-c`/`-e`/`-D` still act on the normalized values.
+PolyKybd's emoji category sets `normalize: true`.
 
 ### Architecture of `fontconvert.c`
 - `extract_range_ft()` — iterates a codepoint range, looks up each glyph with `FT_Get_Char_Index()`, renders via FreeType, calls `render_bitmap_to_bits()`
