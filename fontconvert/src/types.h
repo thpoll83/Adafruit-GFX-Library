@@ -43,6 +43,11 @@ typedef struct settings {
 	float saturation_boost;
 	float sharpness;
 	int outline;
+	int normalize;  /* -N: per-glyph auto-levels.  Before dithering, scale each
+	                   glyph's gray buffer so its brightest pixel maps to white
+	                   (v /= max), keeping black at 0.  Recovers dark-colour
+	                   emoji (e.g. a dark-red face) whose low luminance would
+	                   otherwise dither down to a few scattered dots. */
 	int composite;  /* sequence (-S) mode: when set (-C), composite ALL glyphs of
 	                   each comma-separated group into ONE bitmap using HarfBuzz
 	                   GPOS positions, emitting a single GFXglyph per group.  Lets a

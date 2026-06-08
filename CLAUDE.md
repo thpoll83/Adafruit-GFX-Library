@@ -80,6 +80,19 @@ larger `yAdvance` shifts the full-height glyph down ~8 px so it lands at y=0..40
 zero clipping. Implemented in `fontconvert.c` (the `emit_yadv` override in both the
 range- and sequence-mode footers); `-Y` does not rescale the bitmap.
 
+### Per-glyph auto-levels (`-N`)
+`-N` normalizes each glyph independently *before* dithering: it finds the glyph's
+brightest pixel and scales the whole gray buffer so that pixel maps to white
+(`v /= max`), keeping black at 0 (skipped when the max is already ~1). Because the
+colour path composites BGRA over **black** (`gray = a*lum`), a dark-colour emoji
+(dark-red/purple face, eggplant, dark moon) has low luminance and would dither
+down to a few scattered dots; `-N` stretches it back to the full range so the
+shape reads. Implemented as the first step of `apply_dithering()` in `dither.c`,
+so `-G`/`-c`/`-e`/`-D` still act on the normalized values. PolyKybd's emoji
+category sets `normalize: true`. (v1 uses the absolute max; a lone hot pixel —
+e.g. a white sparkle on a dark object — would limit the gain. A high-percentile
+max would be the refinement if that shows up.)
+
 ### Architecture of `fontconvert.c`
 - `extract_range_ft()` — iterates a codepoint range, looks up each glyph with `FT_Get_Char_Index()`, renders via FreeType, calls `render_bitmap_to_bits()`
 - `shape_and_render_sequence()` — parses space/comma-separated hex codepoints, shapes them with `hb_shape()` (HarfBuzz), then renders the resulting glyph IDs through FreeType. Use this for any emoji that is multiple Unicode codepoints (ZWJ sequences, regional indicator flag pairs, skin-tone/gender modifier combos).

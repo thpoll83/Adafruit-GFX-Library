@@ -53,7 +53,7 @@ int range_count(const ch_range *range) {
 void print_usage(char *argv[]) {
 	fprintf(stderr,
 	        "usage: %s -f FONTFILE [-s SIZE] [-v VARIANT] [-g] [-r H] [-Y YADV] [-W W] [-w WGHT]\n"
-	        "       %*s [-D MODE] [-e EXPOSURE] [-c CONTRAST] [-o OFFSET|-n OFFSET] [-b BITS]\n"
+	        "       %*s [-N] [-D MODE] [-e EXPOSURE] [-c CONTRAST] [-o OFFSET|-n OFFSET] [-b BITS]\n"
 	        "       %*s [-S \"G[,G]...\" [-F CP] [-C] | RANGES]\n"
 	        "       where G = space-separated hex codepoints for one glyph\n",
 	        argv[0], (int)strlen(argv[0]), "", (int)strlen(argv[0]), "");
@@ -114,6 +114,13 @@ void print_usage(char *argv[]) {
 	        "              1.0, default 0.0).  Positive values shift pixels toward\n"
 	        "              white (lower effective threshold); negative values shift\n"
 	        "              toward black.  Useful to compensate for OLED gamma.\n");
+	fprintf(stderr,
+	        "    -N        Per-glyph auto-levels (normalize).  Before dithering,\n"
+	        "              scale each glyph's gray buffer so its brightest pixel\n"
+	        "              maps to white (v /= max), keeping black at 0.  Recovers\n"
+	        "              dark-colour emoji (e.g. a dark-red face) that would\n"
+	        "              otherwise dither down to a few dots.  Applied first, so\n"
+	        "              -G/-c/-e/-D still act on the normalized values.\n");
 	fprintf(stderr,
 	        "    -c N      Contrast multiplier applied before dithering (default:\n"
 	        "              1.0 = unchanged, 0.0 = flat gray, >1.0 = more contrast).\n"
@@ -235,7 +242,7 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 	if (argc <= 1)
 		return -1;
 
-	while ((opt = getopt(argc, argv, "dgCs:f:v:r:o:n:S:W:w:D:e:c:G:B:U:O:b:F:Y:")) != -1) {
+	while ((opt = getopt(argc, argv, "dgCNs:f:v:r:o:n:S:W:w:D:e:c:G:B:U:O:b:F:Y:")) != -1) {
 		switch (opt) {
 		case 's':
 			if (!optarg) { printf("Missing value for argument s!\n"); return -1; }
@@ -282,6 +289,10 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 
 		case 'C':
 			s.composite = 1;
+			break;
+
+		case 'N':
+			s.normalize = 1;
 			break;
 
 		case 'd':

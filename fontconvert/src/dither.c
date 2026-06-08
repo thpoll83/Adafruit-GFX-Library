@@ -228,6 +228,22 @@ static void apply_unsharp_mask(float *gray, int width, int rows, float amount) {
 }
 
 void apply_dithering(float *gray, int width, int rows) {
+	// Per-glyph auto-levels: stretch [0, brightest] -> [0, 1] so a dark-colour
+	// glyph (whose luminance is low after BGRA->gray) uses the full range
+	// instead of dithering down to a few dots.  Black stays at 0, so transparent
+	// background and the keycap stay dark.
+	if (s.normalize) {
+		float maxv = 0.0f;
+		for (int i = 0; i < width * rows; i++)
+			if (gray[i] > maxv) maxv = gray[i];
+		if (maxv > 1e-4f && maxv < 1.0f) {
+			float gain = 1.0f / maxv;
+			for (int i = 0; i < width * rows; i++) {
+				float v = gray[i] * gain;
+				gray[i] = v > 1.0f ? 1.0f : v;
+			}
+		}
+	}
 	if (s.sharpness > 0.0f)
 		apply_unsharp_mask(gray, width, rows, s.sharpness);
 	if (s.gamma_val != 1.0f) {
