@@ -53,7 +53,7 @@ int range_count(const ch_range *range) {
 void print_usage(char *argv[]) {
 	fprintf(stderr,
 	        "usage: %s -f FONTFILE [-s SIZE] [-v VARIANT] [-g] [-r H] [-Y YADV] [-W W] [-w WGHT]\n"
-	        "       %*s [-N] [-D MODE] [-e EXPOSURE] [-c CONTRAST] [-o OFFSET|-n OFFSET] [-b BITS]\n"
+	        "       %*s [-N] [-I] [-E] [-D MODE] [-e EXPOSURE] [-c CONTRAST] [-o OFFSET|-n OFFSET] [-b BITS]\n"
 	        "       %*s [-S \"G[,G]...\" [-F CP] [-C] | RANGES]\n"
 	        "       where G = space-separated hex codepoints for one glyph\n",
 	        argv[0], (int)strlen(argv[0]), "", (int)strlen(argv[0]), "");
@@ -203,6 +203,20 @@ void print_usage(char *argv[]) {
 		        "              glyph on a dark background and seals the dithering fringe\n"
 		        "              on white flags (JP, KR).\n");
 	fprintf(stderr,
+	        "    -I        Invert the dithered bits inside the alpha mask (colour\n"
+	        "              glyphs): bright areas go dark, dark areas light, for an\n"
+	        "              outline/icon look.  Transparent background stays dark.\n"
+	        "              Pairs with -E and -O.  Note: with -N the glyph is\n"
+	        "              brightened first, so -I then hollows it (even, outlined\n"
+	        "              look); without -N a dark glyph inverts to a solid fill.\n");
+	fprintf(stderr,
+	        "    -E        Edge-preserve (colour glyphs): overlay the glyph's\n"
+	        "              interior feature edges (gradient of the pre-dither gray)\n"
+	        "              onto the dithered bits, forced lit, so eyes/mouth/etc.\n"
+	        "              stay crisp instead of dissolving into dither.  Edges are\n"
+	        "              kept clear of the alpha boundary so -O remains a clean\n"
+	        "              1px outline.  Applied after -I, before -O.\n");
+	fprintf(stderr,
 	        "    -d        Dump all codepoints (and variant selectors) present in\n"
 	        "              the font to stderr, then exit without generating output.\n");
 	fprintf(stderr,
@@ -242,7 +256,7 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 	if (argc <= 1)
 		return -1;
 
-	while ((opt = getopt(argc, argv, "dgCNs:f:v:r:o:n:S:W:w:D:e:c:G:B:U:O:b:F:Y:")) != -1) {
+	while ((opt = getopt(argc, argv, "dgCNIEs:f:v:r:o:n:S:W:w:D:e:c:G:B:U:O:b:F:Y:")) != -1) {
 		switch (opt) {
 		case 's':
 			if (!optarg) { printf("Missing value for argument s!\n"); return -1; }
@@ -293,6 +307,14 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 
 		case 'N':
 			s.normalize = 1;
+			break;
+
+		case 'I':
+			s.invert = 1;
+			break;
+
+		case 'E':
+			s.edge_preserve = 1;
 			break;
 
 		case 'd':

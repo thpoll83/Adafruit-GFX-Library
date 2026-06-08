@@ -67,6 +67,8 @@ FontSettings s = {
 	.saturation_boost = 0.0f,
 	.sharpness = 0.0f,
 	.outline = 0,
+	.invert = 0,
+	.edge_preserve = 0,
 	.normalize = 0,
 	.composite = 0,
 };

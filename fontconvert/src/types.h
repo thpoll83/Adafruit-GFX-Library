@@ -43,6 +43,15 @@ typedef struct settings {
 	float saturation_boost;
 	float sharpness;
 	int outline;
+	int invert;     /* -I: invert the dithered bits inside the alpha mask (colour
+	                   glyphs).  Bright areas go dark and dark areas light, giving
+	                   an outline/icon look (pairs with -E and -O).  Background
+	                   (transparent) stays dark. */
+	int edge_preserve; /* -E: overlay the glyph's interior feature edges (Sobel on
+	                   the post-adjustment gray, restricted to the interior away
+	                   from the alpha boundary so -O stays a clean 1px outline)
+	                   onto the dithered bits, forced lit — keeps eyes/mouth/etc.
+	                   crisp instead of dissolving into dither. Colour glyphs. */
 	int normalize;  /* -N: per-glyph auto-levels.  Before dithering, scale each
 	                   glyph's gray buffer so its brightest pixel maps to white
 	                   (v /= max), keeping black at 0.  Recovers dark-colour

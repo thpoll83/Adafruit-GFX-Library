@@ -95,6 +95,23 @@ the `NORM_PCT` constant in `dither.c` tunes it. Implemented as the first step of
 `apply_dithering()`, so `-G`/`-c`/`-e`/`-D` still act on the normalized values.
 PolyKybd's emoji category sets `normalize: true`.
 
+### Invert (`-I`) and edge-preserve (`-E`) — the "outlined icon" pipeline
+Two composable colour-glyph post-processes (applied in `render_bitmap_to_bits`
+after the dither, in the order **invert → edges → outline**):
+- **`-I`** flips the dithered bits inside the alpha mask (bright↔dark), giving an
+  outline/icon look. With `-N` the glyph is brightened first, so `-I` then
+  *hollows* it (even, outlined look); without `-N` a dark glyph inverts to a
+  solid fill. Background (transparent) stays dark.
+- **`-E`** overlays the glyph's interior feature edges (gradient of the
+  *pre-dither* gray, snapshotted in `apply_dithering` into `s_edge_gray`), forced
+  lit, so eyes/mouth/details stay crisp. Edges are kept `EDGE_BAND` px clear of
+  the alpha boundary so `-O1` remains a clean single-pixel outline (no doubling).
+  `EDGE_THRESH`/`EDGE_BAND` in `dither.c` tune it.
+
+PolyKybd's emoji category uses `-N -I -E -O1 -Dfs -r40 -Y48` ("col4" from the
+visual study): per-glyph auto-levels, invert to an outlined icon, crisp interior
+edges, 1px silhouette. `-I`/`-E` are BGRA-only; `-O` still works on gray/mono.
+
 ### Architecture of `fontconvert.c`
 - `extract_range_ft()` — iterates a codepoint range, looks up each glyph with `FT_Get_Char_Index()`, renders via FreeType, calls `render_bitmap_to_bits()`
 - `shape_and_render_sequence()` — parses space/comma-separated hex codepoints, shapes them with `hb_shape()` (HarfBuzz), then renders the resulting glyph IDs through FreeType. Use this for any emoji that is multiple Unicode codepoints (ZWJ sequences, regional indicator flag pairs, skin-tone/gender modifier combos).

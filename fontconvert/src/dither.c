@@ -9,6 +9,15 @@
 static uint8_t *s_cap     = NULL;
 static int      s_cap_pos = 0;
 
+// Snapshot of the post-adjustment gray buffer (after -N/-G/-c/-e, before the
+// dither), kept by apply_dithering when -E is active so render_bitmap_to_bits
+// can compute interior feature edges from the same values that were dithered.
+static float   *s_edge_gray = NULL;
+static int      s_edge_w = 0, s_edge_h = 0;
+
+#define EDGE_THRESH 0.28f   // -E: gradient magnitude that counts as a feature edge
+#define EDGE_BAND   2       // -E: keep edges this many px clear of the alpha boundary
+
 void enbit(uint8_t value) {
 	static uint8_t row = 0, sum = 0, bit = 0x80, firstCall = 1;
 	if (s_cap) {
@@ -284,6 +293,16 @@ void apply_dithering(float *gray, int width, int rows) {
 			gray[i] = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
 		}
 	}
+	// Snapshot the adjusted gray (pre-dither) so -E can detect feature edges on
+	// the same values the dither sees.  render_bitmap_to_bits frees it.
+	if (s.edge_preserve) {
+		free(s_edge_gray);
+		s_edge_gray = (float *)malloc((size_t)width * rows * sizeof(float));
+		if (s_edge_gray) {
+			memcpy(s_edge_gray, gray, (size_t)width * rows * sizeof(float));
+			s_edge_w = width; s_edge_h = rows;
+		}
+	}
 	switch (s.dither_mode) {
 		case DITHER_STUCKI:           dither_stucki(gray, width, rows);           break;
 		case DITHER_BAYER:            dither_bayer(gray, width, rows);            break;
@@ -404,6 +423,56 @@ static void emit_buf(const uint8_t *buf, int n_bits) {
 		enbit((buf[i >> 3] >> (7 - (i & 7))) & 1);
 }
 
+// Build a content mask (alpha > 0) from a BGRA bitmap, scaled to out_w x out_h.
+// Returns a float buffer (0/1-ish after scaling); caller frees.  threshold 0.5.
+static float *scaled_alpha_mask(FT_Bitmap *bitmap, int out_w, int out_h) {
+	int sw = (int)bitmap->width, sh = (int)bitmap->rows;
+	float *a = (float *)malloc((size_t)sw * sh * sizeof(float));
+	if (!a) return NULL;
+	for (int y = 0; y < sh; y++)
+		for (int x = 0; x < sw; x++)
+			a[y * sw + x] = bitmap->buffer[y * bitmap->pitch + x * 4 + 3] > 0 ? 1.0f : 0.0f;
+	if (sw != out_w || sh != out_h) {
+		float *sc = scale_gray_buf(a, sw, sh, out_w, out_h);
+		free(a);
+		a = sc;
+	}
+	return a;
+}
+
+// -I: invert the dithered bits inside the content mask (alpha >= 0.5).  Bright
+// areas (lit) go dark and dark areas (unlit) go light; transparent background is
+// left untouched (already dark).
+static void apply_invert(uint8_t *buf, const float *alpha, int w, int h) {
+	for (int i = 0; i < w * h; i++)
+		if (alpha[i] >= 0.5f)
+			buf[i >> 3] ^= 0x80 >> (i & 7);
+}
+
+// -E: force the glyph's interior feature edges lit.  Gradient (Sobel-ish) of the
+// pre-dither gray; only pixels that are content AND at least EDGE_BAND px from
+// any non-content pixel and the bbox edge — so the silhouette is left to -O as a
+// clean 1px outline and the boundary isn't doubled.
+static void apply_interior_edges(uint8_t *buf, const float *gray, const float *alpha,
+                                 int w, int h) {
+	const int b = EDGE_BAND;
+	for (int y = b; y < h - b; y++) {
+		for (int x = b; x < w - b; x++) {
+			int idx = y * w + x;
+			if (alpha[idx] < 0.5f) continue;
+			int near_boundary = 0;
+			for (int dy = -b; dy <= b && !near_boundary; dy++)
+				for (int dx = -b; dx <= b; dx++)
+					if (alpha[(y + dy) * w + (x + dx)] < 0.5f) { near_boundary = 1; break; }
+			if (near_boundary) continue;
+			float gx = gray[idx + 1] - gray[idx - 1];
+			float gy = gray[(y + 1) * w + x] - gray[(y - 1) * w + x];
+			if (gx * gx + gy * gy > EDGE_THRESH * EDGE_THRESH)
+				buf[idx >> 3] |= 0x80 >> (idx & 7);
+		}
+	}
+}
+
 // Core render: populates *out_w/*out_h and streams bits via enbit() (or into
 // s_cap when capture mode is active).
 static void render_core(FT_Bitmap *bitmap, int *out_w, int *out_h) {
@@ -450,7 +519,11 @@ static void render_core(FT_Bitmap *bitmap, int *out_w, int *out_h) {
 }
 
 void render_bitmap_to_bits(FT_Bitmap *bitmap, int *out_w, int *out_h) {
-	if (s.outline <= 0) {
+	int is_bgra = (bitmap->pixel_mode == FT_PIXEL_MODE_BGRA);
+	// -I (invert) and -E (edges) are colour-glyph post-processes; -O works on
+	// both.  Capture the dithered bits whenever any post-process is requested.
+	int post = (s.outline > 0) || (is_bgra && (s.invert || s.edge_preserve));
+	if (!post) {
 		render_core(bitmap, out_w, out_h);
 		return;
 	}
@@ -476,10 +549,23 @@ void render_bitmap_to_bits(FT_Bitmap *bitmap, int *out_w, int *out_h) {
 	s_cap     = NULL;
 	s_cap_pos = 0;
 
-	if (bitmap->pixel_mode == FT_PIXEL_MODE_BGRA)
-		alpha_content_outline(captured, bitmap, *out_w, *out_h, s.outline);
-	else
+	if (is_bgra) {
+		// Order: invert the fill, then overlay interior edges, then the 1px
+		// outline — so the silhouette is a single clean line on top.
+		float *alpha = (s.invert || s.edge_preserve)
+		             ? scaled_alpha_mask(bitmap, *out_w, *out_h) : NULL;
+		if (s.invert && alpha)
+			apply_invert(captured, alpha, *out_w, *out_h);
+		if (s.edge_preserve && alpha && s_edge_gray &&
+		    s_edge_w == *out_w && s_edge_h == *out_h)
+			apply_interior_edges(captured, s_edge_gray, alpha, *out_w, *out_h);
+		if (s.outline > 0)
+			alpha_content_outline(captured, bitmap, *out_w, *out_h, s.outline);
+		free(alpha);
+	} else if (s.outline > 0) {
 		morphological_outline(captured, *out_w, *out_h, s.outline);
+	}
+	free(s_edge_gray); s_edge_gray = NULL; s_edge_w = s_edge_h = 0;
 	emit_buf(captured, n_bits);
 	free(captured);
 }
