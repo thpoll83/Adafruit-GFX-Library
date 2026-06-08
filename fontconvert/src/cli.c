@@ -52,8 +52,8 @@ int range_count(const ch_range *range) {
 
 void print_usage(char *argv[]) {
 	fprintf(stderr,
-	        "usage: %s -f FONTFILE [-s SIZE] [-v VARIANT] [-g] [-r H] [-W W] [-w WGHT]\n"
-	        "       %*s [-D MODE] [-e EXPOSURE] [-c CONTRAST] [-o OFFSET|-n OFFSET] [-b BITS]\n"
+	        "usage: %s -f FONTFILE [-s SIZE] [-v VARIANT] [-g] [-r H] [-Y YADV] [-X DX] [-W W] [-w WGHT]\n"
+	        "       %*s [-N] [-I] [-E] [-D MODE] [-e EXPOSURE] [-c CONTRAST] [-o OFFSET|-n OFFSET] [-b BITS]\n"
 	        "       %*s [-S \"G[,G]...\" [-F CP] [-C] | RANGES]\n"
 	        "       where G = space-separated hex codepoints for one glyph\n",
 	        argv[0], (int)strlen(argv[0]), "", (int)strlen(argv[0]), "");
@@ -79,6 +79,20 @@ void print_usage(char *argv[]) {
 	        "              (e.g. NotoColorEmoji) the fixed strike size is used and\n"
 	        "              -s is ignored; -r sets the yAdvance height reported in\n"
 	        "              the GFXfont struct.  Also used by -W to bound scaling.\n");
+	fprintf(stderr,
+	        "    -Y N      Override the emitted GFXfont yAdvance, independent of -r\n"
+	        "              (0 = use -r/native).  -r sets both the rendered pixel\n"
+	        "              size and yAdvance; -Y changes only the emitted yAdvance,\n"
+	        "              so a glyph can be drawn at one size but positioned (via\n"
+	        "              the consumer's baseline + (yAdvance - base) math) as if\n"
+	        "              taller/shorter — e.g. push colour-emoji down to clear a\n"
+	        "              clipped top edge without shrinking the glyph.\n");
+	fprintf(stderr,
+	        "    -X N      Horizontal nudge: add N (may be negative) to every\n"
+	        "              non-empty glyph's emitted xOffset.  Re-centres a glyph\n"
+	        "              the consumer draws with fixed leading padding (e.g. a\n"
+	        "              keycap 2-space emoji prefix that shoves a wide portrait\n"
+	        "              glyph off the right edge; -X-12 pulls it back).\n");
 	fprintf(stderr,
 	        "    -W N      Maximum rendered width in pixels.  When a glyph (after\n"
 	        "              any -r height limit) is still wider than N, it is scaled\n"
@@ -106,6 +120,13 @@ void print_usage(char *argv[]) {
 	        "              1.0, default 0.0).  Positive values shift pixels toward\n"
 	        "              white (lower effective threshold); negative values shift\n"
 	        "              toward black.  Useful to compensate for OLED gamma.\n");
+	fprintf(stderr,
+	        "    -N        Per-glyph auto-levels (normalize).  Before dithering,\n"
+	        "              scale each glyph's gray buffer so its brightest pixel\n"
+	        "              maps to white (v /= max), keeping black at 0.  Recovers\n"
+	        "              dark-colour emoji (e.g. a dark-red face) that would\n"
+	        "              otherwise dither down to a few dots.  Applied first, so\n"
+	        "              -G/-c/-e/-D still act on the normalized values.\n");
 	fprintf(stderr,
 	        "    -c N      Contrast multiplier applied before dithering (default:\n"
 	        "              1.0 = unchanged, 0.0 = flat gray, >1.0 = more contrast).\n"
@@ -188,6 +209,20 @@ void print_usage(char *argv[]) {
 		        "              glyph on a dark background and seals the dithering fringe\n"
 		        "              on white flags (JP, KR).\n");
 	fprintf(stderr,
+	        "    -I        Invert the dithered bits inside the alpha mask (colour\n"
+	        "              glyphs): bright areas go dark, dark areas light, for an\n"
+	        "              outline/icon look.  Transparent background stays dark.\n"
+	        "              Pairs with -E and -O.  Note: with -N the glyph is\n"
+	        "              brightened first, so -I then hollows it (even, outlined\n"
+	        "              look); without -N a dark glyph inverts to a solid fill.\n");
+	fprintf(stderr,
+	        "    -E        Edge-preserve (colour glyphs): overlay the glyph's\n"
+	        "              interior feature edges (gradient of the pre-dither gray)\n"
+	        "              onto the dithered bits, forced lit, so eyes/mouth/etc.\n"
+	        "              stay crisp instead of dissolving into dither.  Edges are\n"
+	        "              kept clear of the alpha boundary so -O remains a clean\n"
+	        "              1px outline.  Applied after -I, before -O.\n");
+	fprintf(stderr,
 	        "    -d        Dump all codepoints (and variant selectors) present in\n"
 	        "              the font to stderr, then exit without generating output.\n");
 	fprintf(stderr,
@@ -227,7 +262,7 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 	if (argc <= 1)
 		return -1;
 
-	while ((opt = getopt(argc, argv, "dgCs:f:v:r:o:n:S:W:w:D:e:c:G:B:U:O:b:F:")) != -1) {
+	while ((opt = getopt(argc, argv, "dgCNIEs:f:v:r:o:n:S:W:w:D:e:c:G:B:U:O:b:F:Y:X:")) != -1) {
 		switch (opt) {
 		case 's':
 			if (!optarg) { printf("Missing value for argument s!\n"); return -1; }
@@ -237,6 +272,16 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 		case 'r':
 			if (!optarg) { printf("Missing value for argument r!\n"); return -1; }
 			s.height = to_int(optarg);
+			break;
+
+		case 'Y':
+			if (!optarg) { printf("Missing value for argument Y!\n"); return -1; }
+			s.yadvance = to_int(optarg);
+			break;
+
+		case 'X':
+			if (!optarg) { printf("Missing value for argument X!\n"); return -1; }
+			s.xshift = to_int(optarg);
 			break;
 
 		case 'o':
@@ -269,6 +314,18 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 
 		case 'C':
 			s.composite = 1;
+			break;
+
+		case 'N':
+			s.normalize = 1;
+			break;
+
+		case 'I':
+			s.invert = 1;
+			break;
+
+		case 'E':
+			s.edge_preserve = 1;
 			break;
 
 		case 'd':

@@ -69,6 +69,49 @@ native size that `-r`/`-W` then shrinks, so `font_render.c` rescales the glyph
 metrics (advance/left/top) to the emitted bitmap — without it a downscaled colour
 glyph reports a ~5× too-large `xAdvance`/`yOffset`.
 
+### Independent yAdvance (`-Y`)
+`-r` sets **both** the rendered pixel size and the emitted `GFXfont` `yAdvance`.
+`-Y<N>` overrides **only** the emitted `yAdvance` (0 = use `-r`/native), so a glyph
+can be rasterised at one size but vertically *positioned* as if taller/shorter —
+the consumer draws at `baseline + (yAdvance - base_yAdvance) + yOffset`. PolyKybd's
+colour-emoji category uses `-r40 -Y48`: NotoColorEmoji glyphs fill the box and sit
+high (`yOffset ≈ -31` at 40 px), clipping the 40 px keycap top at every size; the
+larger `yAdvance` shifts the full-height glyph down ~8 px so it lands at y=0..40 with
+zero clipping. Implemented in `fontconvert.c` (the `emit_yadv` override in both the
+range- and sequence-mode footers); `-Y` does not rescale the bitmap.
+
+### Per-glyph auto-levels (`-N`)
+`-N` normalizes each glyph independently *before* dithering so that a chosen
+**white point** maps to white (`v /= ref`), keeping black at 0 (skipped when the
+ref is already ~1). Because the colour path composites BGRA over **black**
+(`gray = a*lum`), a dark-colour emoji (dark-red/purple face, eggplant, dark moon)
+has low luminance and would dither down to a few scattered dots; `-N` stretches
+it back to the full range so the shape reads. The white point is the **99th
+percentile** brightness (256-bin histogram), not the absolute max, so a lone hot
+pixel — e.g. a white sparkle on a dark object — can't cap the gain and leave the
+body dark; the brightest ~1% clamp to white and the bulk stretches. For a glyph
+with a broad bright region the 99th percentile equals the max (no regression);
+the `NORM_PCT` constant in `dither.c` tunes it. Implemented as the first step of
+`apply_dithering()`, so `-G`/`-c`/`-e`/`-D` still act on the normalized values.
+PolyKybd's emoji category sets `normalize: true`.
+
+### Invert (`-I`) and edge-preserve (`-E`) — the "outlined icon" pipeline
+Two composable colour-glyph post-processes (applied in `render_bitmap_to_bits`
+after the dither, in the order **invert → edges → outline**):
+- **`-I`** flips the dithered bits inside the alpha mask (bright↔dark), giving an
+  outline/icon look. With `-N` the glyph is brightened first, so `-I` then
+  *hollows* it (even, outlined look); without `-N` a dark glyph inverts to a
+  solid fill. Background (transparent) stays dark.
+- **`-E`** overlays the glyph's interior feature edges (gradient of the
+  *pre-dither* gray, snapshotted in `apply_dithering` into `s_edge_gray`), forced
+  lit, so eyes/mouth/details stay crisp. Edges are kept `EDGE_BAND` px clear of
+  the alpha boundary so `-O1` remains a clean single-pixel outline (no doubling).
+  `EDGE_THRESH`/`EDGE_BAND` in `dither.c` tune it.
+
+PolyKybd's emoji category uses `-N -I -E -O1 -Dfs -r40 -Y48` ("col4" from the
+visual study): per-glyph auto-levels, invert to an outlined icon, crisp interior
+edges, 1px silhouette. `-I`/`-E` are BGRA-only; `-O` still works on gray/mono.
+
 ### Architecture of `fontconvert.c`
 - `extract_range_ft()` — iterates a codepoint range, looks up each glyph with `FT_Get_Char_Index()`, renders via FreeType, calls `render_bitmap_to_bits()`
 - `shape_and_render_sequence()` — parses space/comma-separated hex codepoints, shapes them with `hb_shape()` (HarfBuzz), then renders the resulting glyph IDs through FreeType. Use this for any emoji that is multiple Unicode codepoints (ZWJ sequences, regional indicator flag pairs, skin-tone/gender modifier combos).

@@ -51,6 +51,8 @@ FontSettings s = {
 	.num_ranges = 0,
 	.size = 12,
 	.height = 0,
+	.yadvance = 0,
+	.xshift = 0,
 	.max_width = 0,
 	.weight = -1,
 	.offset = 0,
@@ -66,6 +68,9 @@ FontSettings s = {
 	.saturation_boost = 0.0f,
 	.sharpness = 0.0f,
 	.outline = 0,
+	.invert = 0,
+	.edge_preserve = 0,
+	.normalize = 0,
 	.composite = 0,
 };
 
@@ -290,7 +295,9 @@ int main(int argc, char *argv[]) {
 		for (i = 0; i < seq_count; i++) {
 			printf("  { %5d, %3d, %3d, %3d, %4d, %4d }",
 			       table[i].bitmapOffset, table[i].width, table[i].height,
-			       table[i].xAdvance, table[i].xOffset, table[i].yOffset);
+			       table[i].xAdvance,
+			       table[i].width ? table[i].xOffset + s.xshift : table[i].xOffset,
+			       table[i].yOffset);
 			if (i < seq_count - 1)
 				printf(",   // seq[%d] %s\n", i, names[i].name);
 		}
@@ -305,6 +312,8 @@ int main(int argc, char *argv[]) {
 			face->size->metrics.height = table[0].height;
 		else
 			face->size->metrics.height = (uint8_t)(face->size->metrics.height >> 6);
+		long emit_yadv = s.yadvance != 0 ? (long)s.yadvance
+		                                 : (long)face->size->metrics.height;
 		long seq_first = (long)s.seq_first;
 		long seq_last  = seq_first + (long)seq_count - 1;
 		if (seq_first < 0 || seq_last < 0) {
@@ -320,7 +329,7 @@ int main(int argc, char *argv[]) {
 			return 1;
 		}
 		printf("  0x%02lX, // first\n  0x%02lX, // last\n  %ld   //height\n };\n\n",
-		       seq_first, seq_last, face->size->metrics.height);
+		       seq_first, seq_last, emit_yadv);
 		printf("// Approx. %d bytes\n", bitmapOffset + seq_count * 7 + 7);
 
 	} else {
@@ -348,7 +357,8 @@ int main(int argc, char *argv[]) {
 			for (codepoint = ranges[r].first; codepoint <= ranges[r].last; ++codepoint) {
 				printf("  { %5d, %3d, %3d, %3d, %4d, %4d }", table[j].bitmapOffset,
 				       table[j].width, table[j].height, table[j].xAdvance,
-				       table[j].xOffset, table[j].yOffset);
+				       table[j].width ? table[j].xOffset + s.xshift : table[j].xOffset,
+				       table[j].yOffset);
 				if (codepoint < ranges[r].last || r < last_range) {
 					printf(",   // 0x%02lX %s ", codepoint, names[j].name);
 					if ((codepoint >= ' ') && (codepoint <= '~'))
@@ -380,9 +390,11 @@ int main(int argc, char *argv[]) {
 			face->size->metrics.height = table[0].height;
 		else
 			face->size->metrics.height = (uint8_t)(face->size->metrics.height >> 6);
+		long emit_yadv = s.yadvance != 0 ? (long)s.yadvance
+		                                 : (long)face->size->metrics.height;
 		printf("  0x%02lX, // first\n  0x%02lX, // last\n  %ld   //height\n };\n\n",
 		       ranges[0].first + s.offset, ranges[last_range].last + s.offset,
-		       face->size->metrics.height);
+		       emit_yadv);
 		printf("// Approx. %d bytes\n",
 		       bitmapOffset + (total_num + skipped) * 7 + 7);
 	}
