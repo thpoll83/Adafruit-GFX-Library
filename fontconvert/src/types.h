@@ -13,13 +13,18 @@ typedef struct settings {
 	int num_ranges;
 	int size;
 	int height;
-	int yadvance;   /* -Y: override the emitted GFXfont yAdvance independently of
-	                   -r.  -r normally sets BOTH the rendered pixel size and the
-	                   yAdvance; -Y overrides only the emitted yAdvance (0 = use
-	                   -r/native).  Lets a glyph be rasterised at one size but
-	                   vertically positioned as if taller/shorter via the
-	                   consumer's `baseline + (yAdvance - base_yAdvance)` math —
-	                   e.g. shift colour-emoji down to clear the keycap top. */
+	int yadvance;   /* -Y: override the emitted GFXfont yAdvance independently of -r
+	                   (0 = use -r/native).  -r sets both rendered pixel size and
+	                   yAdvance; -Y changes only the emitted yAdvance, so a glyph
+	                   can be rasterised at one size but positioned (via the
+	                   consumer's baseline + (yAdvance - base) math) as if
+	                   taller/shorter — e.g. shift colour-emoji down to clear the
+	                   keycap top.  Does not rescale the bitmap. */
+	int xshift;     /* -X: add N (may be negative) to every non-empty glyph's
+	                   emitted xOffset — a horizontal nudge to re-centre a glyph
+	                   the consumer draws with fixed leading padding (e.g. the
+	                   keycap's 2-space emoji prefix shoves a wide portrait glyph
+	                   off the right edge; -X-12 pulls it back to centre). */
 	int max_width;
 	int weight;
 	int offset;

@@ -52,6 +52,7 @@ FontSettings s = {
 	.size = 12,
 	.height = 0,
 	.yadvance = 0,
+	.xshift = 0,
 	.max_width = 0,
 	.weight = -1,
 	.offset = 0,
@@ -294,7 +295,9 @@ int main(int argc, char *argv[]) {
 		for (i = 0; i < seq_count; i++) {
 			printf("  { %5d, %3d, %3d, %3d, %4d, %4d }",
 			       table[i].bitmapOffset, table[i].width, table[i].height,
-			       table[i].xAdvance, table[i].xOffset, table[i].yOffset);
+			       table[i].xAdvance,
+			       table[i].width ? table[i].xOffset + s.xshift : table[i].xOffset,
+			       table[i].yOffset);
 			if (i < seq_count - 1)
 				printf(",   // seq[%d] %s\n", i, names[i].name);
 		}
@@ -354,7 +357,8 @@ int main(int argc, char *argv[]) {
 			for (codepoint = ranges[r].first; codepoint <= ranges[r].last; ++codepoint) {
 				printf("  { %5d, %3d, %3d, %3d, %4d, %4d }", table[j].bitmapOffset,
 				       table[j].width, table[j].height, table[j].xAdvance,
-				       table[j].xOffset, table[j].yOffset);
+				       table[j].width ? table[j].xOffset + s.xshift : table[j].xOffset,
+				       table[j].yOffset);
 				if (codepoint < ranges[r].last || r < last_range) {
 					printf(",   // 0x%02lX %s ", codepoint, names[j].name);
 					if ((codepoint >= ' ') && (codepoint <= '~'))

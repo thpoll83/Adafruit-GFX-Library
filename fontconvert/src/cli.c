@@ -52,7 +52,7 @@ int range_count(const ch_range *range) {
 
 void print_usage(char *argv[]) {
 	fprintf(stderr,
-	        "usage: %s -f FONTFILE [-s SIZE] [-v VARIANT] [-g] [-r H] [-Y YADV] [-W W] [-w WGHT]\n"
+	        "usage: %s -f FONTFILE [-s SIZE] [-v VARIANT] [-g] [-r H] [-Y YADV] [-X DX] [-W W] [-w WGHT]\n"
 	        "       %*s [-N] [-I] [-E] [-D MODE] [-e EXPOSURE] [-c CONTRAST] [-o OFFSET|-n OFFSET] [-b BITS]\n"
 	        "       %*s [-S \"G[,G]...\" [-F CP] [-C] | RANGES]\n"
 	        "       where G = space-separated hex codepoints for one glyph\n",
@@ -87,6 +87,12 @@ void print_usage(char *argv[]) {
 	        "              the consumer's baseline + (yAdvance - base) math) as if\n"
 	        "              taller/shorter — e.g. push colour-emoji down to clear a\n"
 	        "              clipped top edge without shrinking the glyph.\n");
+	fprintf(stderr,
+	        "    -X N      Horizontal nudge: add N (may be negative) to every\n"
+	        "              non-empty glyph's emitted xOffset.  Re-centres a glyph\n"
+	        "              the consumer draws with fixed leading padding (e.g. a\n"
+	        "              keycap 2-space emoji prefix that shoves a wide portrait\n"
+	        "              glyph off the right edge; -X-12 pulls it back).\n");
 	fprintf(stderr,
 	        "    -W N      Maximum rendered width in pixels.  When a glyph (after\n"
 	        "              any -r height limit) is still wider than N, it is scaled\n"
@@ -256,7 +262,7 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 	if (argc <= 1)
 		return -1;
 
-	while ((opt = getopt(argc, argv, "dgCNIEs:f:v:r:o:n:S:W:w:D:e:c:G:B:U:O:b:F:Y:")) != -1) {
+	while ((opt = getopt(argc, argv, "dgCNIEs:f:v:r:o:n:S:W:w:D:e:c:G:B:U:O:b:F:Y:X:")) != -1) {
 		switch (opt) {
 		case 's':
 			if (!optarg) { printf("Missing value for argument s!\n"); return -1; }
@@ -271,6 +277,11 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 		case 'Y':
 			if (!optarg) { printf("Missing value for argument Y!\n"); return -1; }
 			s.yadvance = to_int(optarg);
+			break;
+
+		case 'X':
+			if (!optarg) { printf("Missing value for argument X!\n"); return -1; }
+			s.xshift = to_int(optarg);
 			break;
 
 		case 'o':
