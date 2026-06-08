@@ -51,6 +51,7 @@ FontSettings s = {
 	.num_ranges = 0,
 	.size = 12,
 	.height = 0,
+	.yadvance = 0,
 	.max_width = 0,
 	.weight = -1,
 	.offset = 0,
@@ -305,6 +306,8 @@ int main(int argc, char *argv[]) {
 			face->size->metrics.height = table[0].height;
 		else
 			face->size->metrics.height = (uint8_t)(face->size->metrics.height >> 6);
+		long emit_yadv = s.yadvance != 0 ? (long)s.yadvance
+		                                 : (long)face->size->metrics.height;
 		long seq_first = (long)s.seq_first;
 		long seq_last  = seq_first + (long)seq_count - 1;
 		if (seq_first < 0 || seq_last < 0) {
@@ -320,7 +323,7 @@ int main(int argc, char *argv[]) {
 			return 1;
 		}
 		printf("  0x%02lX, // first\n  0x%02lX, // last\n  %ld   //height\n };\n\n",
-		       seq_first, seq_last, face->size->metrics.height);
+		       seq_first, seq_last, emit_yadv);
 		printf("// Approx. %d bytes\n", bitmapOffset + seq_count * 7 + 7);
 
 	} else {
@@ -380,9 +383,11 @@ int main(int argc, char *argv[]) {
 			face->size->metrics.height = table[0].height;
 		else
 			face->size->metrics.height = (uint8_t)(face->size->metrics.height >> 6);
+		long emit_yadv = s.yadvance != 0 ? (long)s.yadvance
+		                                 : (long)face->size->metrics.height;
 		printf("  0x%02lX, // first\n  0x%02lX, // last\n  %ld   //height\n };\n\n",
 		       ranges[0].first + s.offset, ranges[last_range].last + s.offset,
-		       face->size->metrics.height);
+		       emit_yadv);
 		printf("// Approx. %d bytes\n",
 		       bitmapOffset + (total_num + skipped) * 7 + 7);
 	}

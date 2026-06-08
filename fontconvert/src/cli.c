@@ -52,7 +52,7 @@ int range_count(const ch_range *range) {
 
 void print_usage(char *argv[]) {
 	fprintf(stderr,
-	        "usage: %s -f FONTFILE [-s SIZE] [-v VARIANT] [-g] [-r H] [-W W] [-w WGHT]\n"
+	        "usage: %s -f FONTFILE [-s SIZE] [-v VARIANT] [-g] [-r H] [-Y YADV] [-W W] [-w WGHT]\n"
 	        "       %*s [-D MODE] [-e EXPOSURE] [-c CONTRAST] [-o OFFSET|-n OFFSET] [-b BITS]\n"
 	        "       %*s [-S \"G[,G]...\" [-F CP] [-C] | RANGES]\n"
 	        "       where G = space-separated hex codepoints for one glyph\n",
@@ -79,6 +79,14 @@ void print_usage(char *argv[]) {
 	        "              (e.g. NotoColorEmoji) the fixed strike size is used and\n"
 	        "              -s is ignored; -r sets the yAdvance height reported in\n"
 	        "              the GFXfont struct.  Also used by -W to bound scaling.\n");
+	fprintf(stderr,
+	        "    -Y N      Override the emitted GFXfont yAdvance, independent of -r\n"
+	        "              (0 = use -r/native).  -r sets both the rendered pixel\n"
+	        "              size and yAdvance; -Y changes only the emitted yAdvance,\n"
+	        "              so a glyph can be drawn at one size but positioned (via\n"
+	        "              the consumer's baseline + (yAdvance - base) math) as if\n"
+	        "              taller/shorter — e.g. push colour-emoji down to clear a\n"
+	        "              clipped top edge without shrinking the glyph.\n");
 	fprintf(stderr,
 	        "    -W N      Maximum rendered width in pixels.  When a glyph (after\n"
 	        "              any -r height limit) is still wider than N, it is scaled\n"
@@ -227,7 +235,7 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 	if (argc <= 1)
 		return -1;
 
-	while ((opt = getopt(argc, argv, "dgCs:f:v:r:o:n:S:W:w:D:e:c:G:B:U:O:b:F:")) != -1) {
+	while ((opt = getopt(argc, argv, "dgCs:f:v:r:o:n:S:W:w:D:e:c:G:B:U:O:b:F:Y:")) != -1) {
 		switch (opt) {
 		case 's':
 			if (!optarg) { printf("Missing value for argument s!\n"); return -1; }
@@ -237,6 +245,11 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 		case 'r':
 			if (!optarg) { printf("Missing value for argument r!\n"); return -1; }
 			s.height = to_int(optarg);
+			break;
+
+		case 'Y':
+			if (!optarg) { printf("Missing value for argument Y!\n"); return -1; }
+			s.yadvance = to_int(optarg);
 			break;
 
 		case 'o':

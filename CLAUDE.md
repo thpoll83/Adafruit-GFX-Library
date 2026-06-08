@@ -69,6 +69,17 @@ native size that `-r`/`-W` then shrinks, so `font_render.c` rescales the glyph
 metrics (advance/left/top) to the emitted bitmap — without it a downscaled colour
 glyph reports a ~5× too-large `xAdvance`/`yOffset`.
 
+### Independent yAdvance (`-Y`)
+`-r` sets **both** the rendered pixel size and the emitted `GFXfont` `yAdvance`.
+`-Y<N>` overrides **only** the emitted `yAdvance` (0 = use `-r`/native), so a glyph
+can be rasterised at one size but vertically *positioned* as if taller/shorter —
+the consumer draws at `baseline + (yAdvance - base_yAdvance) + yOffset`. PolyKybd's
+colour-emoji category uses `-r40 -Y48`: NotoColorEmoji glyphs fill the box and sit
+high (`yOffset ≈ -31` at 40 px), clipping the 40 px keycap top at every size; the
+larger `yAdvance` shifts the full-height glyph down ~8 px so it lands at y=0..40 with
+zero clipping. Implemented in `fontconvert.c` (the `emit_yadv` override in both the
+range- and sequence-mode footers); `-Y` does not rescale the bitmap.
+
 ### Architecture of `fontconvert.c`
 - `extract_range_ft()` — iterates a codepoint range, looks up each glyph with `FT_Get_Char_Index()`, renders via FreeType, calls `render_bitmap_to_bits()`
 - `shape_and_render_sequence()` — parses space/comma-separated hex codepoints, shapes them with `hb_shape()` (HarfBuzz), then renders the resulting glyph IDs through FreeType. Use this for any emoji that is multiple Unicode codepoints (ZWJ sequences, regional indicator flag pairs, skin-tone/gender modifier combos).
