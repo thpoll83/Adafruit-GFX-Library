@@ -9,9 +9,28 @@ typedef enum {
 	DITHER_RANDOM,
 } DitherMode;
 
+typedef enum {
+	HINT_NATIVE = 0, /* -Hnative: let FreeType decide (the historical default).
+	                    For a TrueType face this means the bytecode interpreter,
+	                    which grid-fits only if the font actually CARRIES hinting
+	                    instructions. */
+	HINT_AUTO,       /* -Hauto: FT_LOAD_FORCE_AUTOHINT — FreeType's own autohinter
+	                    grid-fits the outline in BOTH axes regardless of what the
+	                    font ships. */
+	HINT_NONE,       /* -Hnone: FT_LOAD_NO_HINTING — raw scaled outline. */
+} HintMode;
+
 typedef struct settings {
 	int num_ranges;
 	int size;
+	int pixel_size; /* -p: set the em size in PIXELS directly (0 = use -s points).
+	                   -s is points at a fixed 141 DPI, so it can only land on
+	                   ppem = round(size * 141/72) — i.e. 12, 14, 16, 18, ...  Every
+	                   odd ppem is unreachable, and down at OLED sizes that is a
+	                   ~14% jump per step with nothing in between, so the size whose
+	                   grid-fitted cap-height actually fits the layout often simply
+	                   is not expressible in points.  -p addresses the raster grid
+	                   directly. */
 	int height;
 	int yadvance;   /* -Y: override the emitted GFXfont yAdvance independently of -r
 	                   (0 = use -r/native).  -r sets both rendered pixel size and
@@ -69,6 +88,19 @@ typedef struct settings {
 	                   matra) render as one addressable glyph with the mark correctly
 	                   attached, instead of separate side-by-side glyphs.  Mono path
 	                   only. */
+	HintMode hinting; /* -H: how the outline is grid-fitted before rasterising.
+	                   Matters most in the 1-bit mono path at small pixel sizes,
+	                   where every stem is 1-2 px: without grid-fitting, stem
+	                   edges land on arbitrary fractional positions and round
+	                   independently, so nominally identical stems come out 1 px
+	                   on one side and 2 px on the other and round bowls go
+	                   lopsided.  HINT_NATIVE only helps when the face carries
+	                   bytecode; many modern variable fonts (e.g. Noto Sans) ship
+	                   NONE, and FreeType will not fall back to its autohinter on
+	                   its own if the face has even a stub `prep` table — so an
+	                   unhinted face renders unhinted unless -Hauto is asked for
+	                   explicitly.  Default stays HINT_NATIVE so existing
+	                   generated headers stay byte-identical. */
 } FontSettings;
 
 typedef struct ch_range {

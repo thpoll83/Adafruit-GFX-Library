@@ -52,7 +52,7 @@ int range_count(const ch_range *range) {
 
 void print_usage(char *argv[]) {
 	fprintf(stderr,
-	        "usage: %s -f FONTFILE [-s SIZE] [-v VARIANT] [-g] [-r H] [-Y YADV] [-X DX] [-W W] [-w WGHT]\n"
+	        "usage: %s -f FONTFILE [-s SIZE] [-v VARIANT] [-g] [-r H] [-Y YADV] [-X DX] [-W W] [-w WGHT] [-H HINT]\n"
 	        "       %*s [-N] [-I] [-E] [-D MODE] [-e EXPOSURE] [-c CONTRAST] [-o OFFSET|-n OFFSET] [-b BITS]\n"
 	        "       %*s [-S \"G[,G]...\" [-F CP] [-C] | RANGES]\n"
 	        "       where G = space-separated hex codepoints for one glyph\n",
@@ -64,6 +64,15 @@ void print_usage(char *argv[]) {
 	        "    -f FILE   Font file to convert (.ttf or .otf)\n");
 	fprintf(stderr,
 	        "    -s N      Point size for the generated font (default: 12)\n");
+	fprintf(stderr,
+	        "    -p N      Em size in PIXELS, addressing the raster grid directly\n"
+	        "              (0/unset = use -s).  -s is points at a fixed 141 DPI, so\n"
+	        "              it only reaches ppem = round(N*141/72) — 12, 14, 16, 18,\n"
+	        "              ... — and every ODD ppem is unreachable.  At OLED sizes\n"
+	        "              that is a ~14%% jump per step, so the size whose grid-\n"
+	        "              fitted cap-height actually fits a fixed layout is often\n"
+	        "              not expressible in points at all.  Pairs with -Hauto.\n"
+	        "              The emitted symbol is named ..._<N>px<bits>b.\n");
 	fprintf(stderr,
 	        "    -v NAME   Variant name embedded in the C identifiers to avoid\n"
 	        "              name clashes when multiple fonts are included together\n");
@@ -104,6 +113,26 @@ void print_usage(char *argv[]) {
 	        "              as variable fonts; without -w FreeType renders the default\n"
 	        "              instance (usually Regular/400).  N is clamped to the axis\n"
 	        "              range; ignored with a warning for non-variable fonts.\n");
+	fprintf(stderr,
+	        "    -H MODE   Grid-fitting (hinting) applied before rasterising:\n"
+	        "                native    Whatever the face provides — the TrueType\n"
+	        "                          bytecode interpreter for a hinted TTF, and\n"
+	        "                          NO grid-fitting at all for a font that ships\n"
+	        "                          without instructions (default; keeps every\n"
+	        "                          previously generated header byte-identical)\n"
+	        "                auto      FreeType's autohinter, forced on regardless\n"
+	        "                          of what the font carries — grid-fits stems\n"
+	        "                          and x-/cap-height in BOTH axes\n"
+	        "                none      Raw scaled outline, no grid-fitting\n"
+	        "              Use -Hauto for small 1-bit text (roughly <= 20 px em).\n"
+	        "              There every stem is 1-2 px wide, so without grid-fitting\n"
+	        "              the two edges of one stem round independently and the\n"
+	        "              same stem comes out 1 px here and 2 px there, bowls go\n"
+	        "              lopsided and crossbars drop out.  Most modern variable\n"
+	        "              fonts (Noto Sans among them) ship NO hinting bytecode,\n"
+	        "              and FreeType does not silently fall back to its own\n"
+	        "              autohinter when the face has even a stub `prep` table —\n"
+	        "              so `native` renders such a font completely unhinted.\n");
 	fprintf(stderr,
 	        "    -D MODE   Dithering algorithm used when -g is active (default: fs):\n"
 	        "                fs        Floyd-Steinberg error diffusion — smooth\n"
@@ -262,7 +291,7 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 	if (argc <= 1)
 		return -1;
 
-	while ((opt = getopt(argc, argv, "dgCNIEs:f:v:r:o:n:S:W:w:D:e:c:G:B:U:O:b:F:Y:X:")) != -1) {
+	while ((opt = getopt(argc, argv, "dgCNIEs:f:v:r:o:n:S:W:w:D:e:c:G:B:U:O:b:F:Y:X:H:p:")) != -1) {
 		switch (opt) {
 		case 's':
 			if (!optarg) { printf("Missing value for argument s!\n"); return -1; }
@@ -351,6 +380,27 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 			if (!optarg) { printf("Missing value for argument w!\n"); return -1; }
 			s.weight = to_int(optarg);
 			if (s.weight < 0) s.weight = 0;
+			break;
+
+		case 'p':
+			if (!optarg) { printf("Missing value for argument p!\n"); return -1; }
+			s.pixel_size = to_int(optarg);
+			if (s.pixel_size < 0) s.pixel_size = 0;
+			break;
+
+		case 'H':
+			if (!optarg) { printf("Missing value for argument H!\n"); return -1; }
+			if (strcmp(optarg, "native") == 0) {
+				s.hinting = HINT_NATIVE;
+			} else if (strcmp(optarg, "auto") == 0) {
+				s.hinting = HINT_AUTO;
+			} else if (strcmp(optarg, "none") == 0) {
+				s.hinting = HINT_NONE;
+			} else {
+				fprintf(stderr, "Unknown hinting mode '%s' (use native|auto|none)\n",
+				        optarg);
+				return -1;
+			}
 			break;
 
 		case 'D':

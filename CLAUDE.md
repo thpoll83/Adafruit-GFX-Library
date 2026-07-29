@@ -53,6 +53,29 @@ for Medium, `-w700` for Bold). Implemented via `FT_Get_MM_Var` / `FT_Set_Var_Des
 in `fontconvert.c`; value is clamped to the axis range and ignored with a warning on non-variable
 fonts. The firmware's JP & KR ranges (`create_fonts.sh`) pass `-w500`.
 
+### Grid-fitting (`-H`) and pixel-exact sizing (`-p`) — the small-text levers
+`-H native|auto|none` picks the hinting applied before rasterising; `native` is the
+default and keeps every previously generated header byte-identical. **Use `-Hauto`
+for any small 1-bit UI text (≲20 px em)** — there a stem is 1–2 px, so ungridfitted
+the two edges of one stem round independently and the same stem comes out 1 px here
+and 2 px there, bowls go lopsided and crossbars drop. Two traps make this silent:
+**NotoSans (and most modern variable fonts) ship NO hinting bytecode** —
+`maxSizeOfInstructions == 0`, no `fpgm`, a 7-byte `prep` that only sets dropout
+control — **and FreeType will not fall back to its autohinter** when a face has even
+that stub `prep`. So `native` renders them completely ungridfitted, and the
+`TT_INTERPRETER_VERSION_35` `fontconvert.c` sets for the mono path is a no-op (no
+bytecode to interpret). This was the cause of the PolyKybd status-OLED "numbers look
+strange" report (2026-07).
+
+`-p<N>` sets the em size in **pixels** instead of `-s` points-at-141-DPI. `-s` can
+only reach `round(N*141/72)` — 12, 14, 16, 18 … — so every **odd ppem is
+unreachable**, a ~14% jump per step at OLED sizes. Since grid-fitting snaps
+cap-height to whole pixels, the reachable heights come in steps, and the size that
+keeps an existing layout's footprint *while* gaining grid-fitting is frequently not
+expressible in points. Always **measure** cap-height / x-height / worst-case string
+widths against the previous header before adopting a size. Consumers: the PolyKybd
+firmware's `fonts/gen-status-fonts.sh`.
+
 ### Sequence base codepoint (`-F`) and colour-glyph outline (`-O`)
 `-F<cp>` sets the emitted `GFXfont`'s `first` in **sequence (`-S`) mode** to `cp`
 (default 0), with `last = cp + count - 1` — so HarfBuzz-shaped sequences (flags,

@@ -56,7 +56,9 @@ each shaped in its own HarfBuzz call.
 | Flag | Meaning |
 |------|---------|
 | `-f<FILE>` | Font file (TTF/OTF) |
-| `-s<N>` | Point size |
+| `-s<N>` | Point size (points at a fixed 141 DPI — so it only reaches even ppem: `-s6`→12 px, `-s7`→14 px, `-s8`→16 px …) |
+| `-p<N>` | Em size in **pixels**, addressing the raster grid directly (0/unset = use `-s`). Reaches the odd ppem `-s` cannot. The emitted symbol is named `..._<N>px<bits>b` |
+| `-H<MODE>` | Grid-fitting: `native` (default — whatever the face provides), `auto` (force FreeType's autohinter), `none` (raw outline). See [Hinting](#hinting-h) |
 | `-v<NAME>` | Variant name embedded in the C identifiers |
 | `-g` | Grayscale / BGRA color-emoji mode — quantises to 1-bit via `-D` algorithm |
 | `-D<MODE>` | Dithering algorithm: `fs` (default), `stucki`, `bayer`, `threshold`, `random` |
@@ -74,6 +76,42 @@ Output is written to stdout; redirect to a `.h` file:
 fontconvert -f fonts/noto-sans/NotoSans-Regular.ttf -s14 -v _Base_ 0x20 0x7e \
     > base/fonts/generated/NotoSans_Regular_Base_14pt.h
 ```
+
+## Hinting (`-H`) — matters most for small 1-bit text
+
+At the sizes small UI text actually renders (roughly ≤ 20 px em) a stem is only
+1–2 px wide, so whether the outline is snapped to the pixel grid decides whether
+the *two edges of one stem* round the same way. Without grid-fitting they round
+independently: the same stem lands 1 px on one side of a glyph and 2 px on the
+other, round bowls come out lopsided, and crossbars drop out. Digits show it
+worst, because a reader compares them against each other.
+
+Two traps make this bite silently:
+
+1. **Most modern variable fonts ship no hinting bytecode at all.** `NotoSans` has
+   `maxSizeOfInstructions == 0`, no `fpgm`, and a 7-byte `prep` that only sets
+   dropout control — every glyph carries zero instructions.
+2. **FreeType will not fall back to its own autohinter** for such a face if it has
+   even that stub `prep` table (its "no instructions" heuristic checks the `fpgm`
+   *and* `prep` sizes). So the default `native` path renders these fonts
+   **completely ungridfitted**, and the `TT_INTERPRETER_VERSION_35` this tool sets
+   for the mono path does not help — there is no bytecode for it to interpret.
+
+Pass `-Hauto` to force the autohinter, which grid-fits stems and x-/cap-height in
+both axes regardless of what the font carries.
+
+Grid-fitting snaps cap-height to whole pixels, so the reachable glyph heights come
+in **steps** — and since `-s` is points at a fixed 141 DPI it can only land on even
+ppem, which often skips the step you want. Use `-p<N>` (pixels) to address the grid
+directly, and *measure* cap-height / x-height / string widths against the previous
+build before adopting a size, so a fixed layout does not move:
+
+```bash
+# grid-fitted 15 px, semibold — the PolyKybd status-OLED body font
+fontconvert -f NotoSans-Regular.ttf -p15 -w600 -Hauto -v _Small_ 0x20 0x7e
+```
+
+`-Hnative` is the default and keeps previously generated headers byte-identical.
 
 ## Tests
 

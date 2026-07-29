@@ -4,6 +4,10 @@
 #include "../../gfxfont.h"
 #include "types.h"
 
+// Base FT_Load_Glyph flags for the current settings: the render target (mono !=
+// 0 -> FT_LOAD_TARGET_MONO) plus the -H grid-fitting choice.
+FT_Int32 glyph_load_flags(int mono);
+
 // Select the best strike or set the char size on face based on global settings.
 void setup_face_size(FT_Face face);
 
