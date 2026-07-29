@@ -46,7 +46,8 @@ FT_Int32 glyph_load_flags(int mono) {
 
 // For outline fonts use FT_Set_Char_Size; for bitmap-only faces (e.g. CBDT/CBLC
 // color emoji) select the strike whose y_ppem is closest to the requested size.
-void setup_face_size(FT_Face face) {
+int setup_face_size(FT_Face face) {
+	int err;
 	if (face->num_fixed_sizes > 0) {
 		int target_px = s.pixel_size > 0 ? s.pixel_size
 		                                 : (s.size * DPI + 36) / 72;
@@ -55,16 +56,27 @@ void setup_face_size(FT_Face face) {
 			int diff = abs((int)(face->available_sizes[i].y_ppem >> 6) - target_px);
 			if (diff < best_diff) { best_diff = diff; best = i; }
 		}
-		FT_Select_Size(face, best);
+		if ((err = FT_Select_Size(face, best))) {
+			fprintf(stderr, "Error %d selecting strike %d (%d px)\n", err, best,
+			        (int)(face->available_sizes[best].y_ppem >> 6));
+			return err;
+		}
 		fprintf(stderr, "Info: bitmap font — selected strike %d (%dx%d px)\n",
 		        best,
 		        (int)(face->available_sizes[best].x_ppem >> 6),
 		        (int)(face->available_sizes[best].y_ppem >> 6));
 	} else if (s.pixel_size > 0) {
-		FT_Set_Pixel_Sizes(face, 0, s.pixel_size);
+		if ((err = FT_Set_Pixel_Sizes(face, 0, s.pixel_size))) {
+			fprintf(stderr, "Error %d setting pixel size %d\n", err, s.pixel_size);
+			return err;
+		}
 	} else {
-		FT_Set_Char_Size(face, s.size << 6, 0, DPI, 0);
+		if ((err = FT_Set_Char_Size(face, s.size << 6, 0, DPI, 0))) {
+			fprintf(stderr, "Error %d setting char size %d pt\n", err, s.size);
+			return err;
+		}
 	}
+	return 0;
 }
 
 int extract_range_ft(GFXglyph *table, glyph_name *names, FT_Face face,
@@ -77,7 +89,7 @@ int extract_range_ft(GFXglyph *table, glyph_name *names, FT_Face face,
 	FT_Bitmap *bitmap;
 	FT_BitmapGlyphRec *rec;
 
-	setup_face_size(face);
+	if (setup_face_size(face)) return -1;
 
 	for (codepoint = first; codepoint <= last; codepoint++, table_idx++) {
 		uint32_t glyph_index = FT_Get_Char_Index(face, codepoint);
@@ -292,7 +304,7 @@ int shape_and_render_sequence(GFXglyph *table, glyph_name *names, FT_Face face,
 		return -1;
 	}
 
-	setup_face_size(face);
+	if (setup_face_size(face)) return -1;
 	hb_font_t *hb_font = hb_ft_font_create(face, NULL);
 
 	int written   = 0;
@@ -488,7 +500,7 @@ int composite_and_render_sequence(GFXglyph *table, glyph_name *names, FT_Face fa
 		return -1;
 	}
 
-	setup_face_size(face);
+	if (setup_face_size(face)) return -1;
 	hb_font_t *hb_font = hb_ft_font_create(face, NULL);
 
 	int written = 0, group_idx = 0;

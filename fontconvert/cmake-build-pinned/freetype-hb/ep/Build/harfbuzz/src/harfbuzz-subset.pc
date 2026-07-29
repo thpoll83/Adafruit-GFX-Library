@@ -1,0 +1,12 @@
+prefix=/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Install/harfbuzz
+exec_prefix=/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Install/harfbuzz
+libdir=/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Install/harfbuzz/lib
+includedir=/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Install/harfbuzz/include
+
+Name: harfbuzz
+Description: HarfBuzz font subsetter
+Version: 2.6.7
+
+Requires: harfbuzz
+Libs: -L${libdir} -lharfbuzz-subset
+Cflags: -I${includedir}/harfbuzz

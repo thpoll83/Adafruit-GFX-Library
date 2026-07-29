@@ -1,0 +1,12 @@
+# This is a generated file and its contents are an internal implementation detail.
+# The download step will be re-executed if anything in this file changes.
+# No other meaning or use of this file is supported.
+
+method=url
+command=/usr/bin/cmake;-P;/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Stamp/freetype_without_harfbuzz/download-freetype_without_harfbuzz.cmake;COMMAND;/usr/bin/cmake;-P;/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Stamp/freetype_without_harfbuzz/verify-freetype_without_harfbuzz.cmake;COMMAND;/usr/bin/cmake;-P;/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Stamp/freetype_without_harfbuzz/extract-freetype_without_harfbuzz.cmake
+source_dir=/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Source/freetype_without_harfbuzz
+work_dir=/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Source
+url(s)=https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.gz;https://downloads.sourceforge.net/project/freetype/freetype2/2.13.3/freetype-2.13.3.tar.gz;https://github.com/freetype/freetype/archive/refs/tags/VER-2-13-3.tar.gz
+hash=
+no_extract=
+

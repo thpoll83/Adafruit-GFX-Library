@@ -58,7 +58,7 @@ each shaped in its own HarfBuzz call.
 | `-f<FILE>` | Font file (TTF/OTF) |
 | `-s<N>` | Point size (points at a fixed 141 DPI — so it only reaches even ppem: `-s6`→12 px, `-s7`→14 px, `-s8`→16 px …) |
 | `-p<N>` | Em size in **pixels**, addressing the raster grid directly (0/unset = use `-s`). Reaches the odd ppem `-s` cannot. The emitted symbol is named `..._<N>px<bits>b` |
-| `-H<MODE>` | Grid-fitting: `native` (default — whatever the face provides), `auto` (force FreeType's autohinter), `none` (raw outline). See [Hinting](#hinting-h) |
+| `-H<MODE>` | Grid-fitting: `native` (default — whatever the face provides), `auto` (force FreeType's autohinter), `none` (raw outline). See [Hinting](#hinting--h--matters-most-for-small-1-bit-text) |
 | `-v<NAME>` | Variant name embedded in the C identifiers |
 | `-g` | Grayscale / BGRA color-emoji mode — quantises to 1-bit via `-D` algorithm |
 | `-D<MODE>` | Dithering algorithm: `fs` (default), `stucki`, `bayer`, `threshold`, `random` |

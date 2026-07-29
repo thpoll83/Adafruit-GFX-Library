@@ -1,0 +1,13 @@
+# Target labels
+ harfbuzz
+# Source files and their labels
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/CMakeFiles/harfbuzz
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/CMakeFiles/harfbuzz.rule
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/CMakeFiles/harfbuzz-complete.rule
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Stamp/harfbuzz/harfbuzz-build.rule
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Stamp/harfbuzz/harfbuzz-configure.rule
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Stamp/harfbuzz/harfbuzz-download.rule
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Stamp/harfbuzz/harfbuzz-install.rule
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Stamp/harfbuzz/harfbuzz-mkdir.rule
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Stamp/harfbuzz/harfbuzz-patch.rule
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Stamp/harfbuzz/harfbuzz-update.rule

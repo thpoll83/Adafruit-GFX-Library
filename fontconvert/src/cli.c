@@ -20,10 +20,28 @@
 #include "cli.h"
 #include "types.h"
 
+// Returns 1 and stores the value when `str` parses completely as a decimal (or
+// 0x-prefixed hex) integer, else returns 0 and leaves *out untouched.
+int parse_int(const char *str, int *out) {
+	int result = 0, consumed = 0;
+	if (strncmp("0x", str, 2) == 0) {
+		if (sscanf(str, "%x%n", (unsigned int *)&result, &consumed) != 1) return 0;
+	} else {
+		if (sscanf(str, "%d%n", &result, &consumed) != 1) return 0;
+	}
+	if (str[consumed] != '\0') return 0;     // trailing garbage, e.g. "12abc"
+	*out = result;
+	return 1;
+}
+
 int to_int(const char *str) {
-	int result;
+	// NOTE: `result` is initialised because sscanf leaves it untouched on a parse
+	// failure — returning it uninitialised was undefined behaviour for every
+	// numeric option (`-sfoo` etc.).  Callers that must reject bad input should
+	// use parse_int() instead of relying on the 0 fallback.
+	int result = 0;
 	if (strncmp("0x", str, 2) == 0)
-		sscanf(str, "%x", &result);
+		sscanf(str, "%x", (unsigned int *)&result);
 	else
 		sscanf(str, "%d", &result);
 	return result;
@@ -52,7 +70,7 @@ int range_count(const ch_range *range) {
 
 void print_usage(char *argv[]) {
 	fprintf(stderr,
-	        "usage: %s -f FONTFILE [-s SIZE] [-v VARIANT] [-g] [-r H] [-Y YADV] [-X DX] [-W W] [-w WGHT] [-H HINT]\n"
+	        "usage: %s -f FONTFILE [-s SIZE] [-p PIXELS] [-v VARIANT] [-g] [-r H] [-Y YADV] [-X DX] [-W W] [-w WGHT] [-H HINT]\n"
 	        "       %*s [-N] [-I] [-E] [-D MODE] [-e EXPOSURE] [-c CONTRAST] [-o OFFSET|-n OFFSET] [-b BITS]\n"
 	        "       %*s [-S \"G[,G]...\" [-F CP] [-C] | RANGES]\n"
 	        "       where G = space-separated hex codepoints for one glyph\n",
@@ -384,8 +402,14 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 
 		case 'p':
 			if (!optarg) { printf("Missing value for argument p!\n"); return -1; }
-			s.pixel_size = to_int(optarg);
-			if (s.pixel_size < 0) s.pixel_size = 0;
+			// Checked parse: a silently-0 pixel size would fall back to -s and
+			// render at an unexpected size instead of failing.
+			if (!parse_int(optarg, &s.pixel_size) || s.pixel_size < 0 ||
+			    s.pixel_size > 1024) {
+				fprintf(stderr, "Invalid pixel size '%s' (want an integer 0..1024)\n",
+				        optarg);
+				return -1;
+			}
 			break;
 
 		case 'H':

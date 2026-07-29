@@ -1,0 +1,43 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/CMakeFiles/freetype_with_harfbuzz"
+		},
+		{
+			"file" : "/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/CMakeFiles/freetype_with_harfbuzz.rule"
+		},
+		{
+			"file" : "/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/CMakeFiles/freetype_with_harfbuzz-complete.rule"
+		},
+		{
+			"file" : "/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Stamp/freetype_with_harfbuzz/freetype_with_harfbuzz-build.rule"
+		},
+		{
+			"file" : "/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Stamp/freetype_with_harfbuzz/freetype_with_harfbuzz-configure.rule"
+		},
+		{
+			"file" : "/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Stamp/freetype_with_harfbuzz/freetype_with_harfbuzz-download.rule"
+		},
+		{
+			"file" : "/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Stamp/freetype_with_harfbuzz/freetype_with_harfbuzz-install.rule"
+		},
+		{
+			"file" : "/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Stamp/freetype_with_harfbuzz/freetype_with_harfbuzz-mkdir.rule"
+		},
+		{
+			"file" : "/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Stamp/freetype_with_harfbuzz/freetype_with_harfbuzz-patch.rule"
+		},
+		{
+			"file" : "/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Stamp/freetype_with_harfbuzz/freetype_with_harfbuzz-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"freetype_with_harfbuzz"
+		],
+		"name" : "freetype_with_harfbuzz"
+	}
+}
