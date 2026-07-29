@@ -4,8 +4,13 @@
 #include "../../gfxfont.h"
 #include "types.h"
 
+// Base FT_Load_Glyph flags for the current settings: the render target (mono !=
+// 0 -> FT_LOAD_TARGET_MONO) plus the -H grid-fitting choice.
+FT_Int32 glyph_load_flags(int mono);
+
 // Select the best strike or set the char size on face based on global settings.
-void setup_face_size(FT_Face face);
+// Returns 0 on success, else the FreeType error (callers must not render on failure).
+int setup_face_size(FT_Face face);
 
 // Render codepoints [first, last] from face into table[]/names[], emitting
 // bitmap bits via enbit().  Returns 0 on success.

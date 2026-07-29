@@ -1,0 +1,13 @@
+prefix=/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Install/harfbuzz
+exec_prefix=/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Install/harfbuzz
+libdir=/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Install/harfbuzz/lib
+includedir=/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/ep/Install/harfbuzz/include
+
+Name: harfbuzz
+Description: HarfBuzz text shaping library ICU integration
+Version: 2.6.7
+
+Requires: harfbuzz
+Requires.private: icu-uc
+Libs: -L${libdir} -lharfbuzz-icu
+Cflags: -I${includedir}/harfbuzz

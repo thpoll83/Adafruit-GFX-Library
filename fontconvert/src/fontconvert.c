@@ -264,8 +264,12 @@ int main(int argc, char *argv[]) {
 	fontFileName = strrchr(fontName, '.');
 	if (!fontFileName)
 		fontFileName = &fontName[strlen(fontName)];
-	sprintf(fontFileName, "%s%dpt%db",
-	        fontVariantName == NULL ? "" : fontVariantName, s.size,
+	// Name the symbol after whichever size was actually asked for, so a -p build
+	// reads as e.g. "..._15px7b" instead of claiming the unused -s default.
+	sprintf(fontFileName, "%s%d%s%db",
+	        fontVariantName == NULL ? "" : fontVariantName,
+	        s.pixel_size > 0 ? s.pixel_size : s.size,
+	        s.pixel_size > 0 ? "px" : "pt",
 	        (ranges[last_range].last > 127)
 	          ? (ranges[last_range].last > 255) ? 16 : 8
 	          : 7);

@@ -30,24 +30,53 @@ static int scale_metric(int v, int num, int den) {
 	return (int)(r + (r >= 0 ? 0.5 : -0.5));
 }
 
+// Base FT_Load_Glyph flags: the render target plus the -H grid-fitting choice.
+// mono = 1 selects the 1-bit path (FT_LOAD_TARGET_MONO), 0 the colour/gray one.
+FT_Int32 glyph_load_flags(int mono) {
+	FT_Int32 flags = mono ? FT_LOAD_TARGET_MONO
+	                      : (FT_LOAD_TARGET_NORMAL | FT_LOAD_COLOR);
+	switch (s.hinting) {
+	case HINT_AUTO: flags |= FT_LOAD_FORCE_AUTOHINT; break;
+	case HINT_NONE: flags |= FT_LOAD_NO_HINTING; break;
+	case HINT_NATIVE:
+	default: break;
+	}
+	return flags;
+}
+
 // For outline fonts use FT_Set_Char_Size; for bitmap-only faces (e.g. CBDT/CBLC
 // color emoji) select the strike whose y_ppem is closest to the requested size.
-void setup_face_size(FT_Face face) {
+int setup_face_size(FT_Face face) {
+	int err;
 	if (face->num_fixed_sizes > 0) {
-		int target_px = (s.size * DPI + 36) / 72;
+		int target_px = s.pixel_size > 0 ? s.pixel_size
+		                                 : (s.size * DPI + 36) / 72;
 		int best = 0, best_diff = INT_MAX;
 		for (int i = 0; i < face->num_fixed_sizes; i++) {
 			int diff = abs((int)(face->available_sizes[i].y_ppem >> 6) - target_px);
 			if (diff < best_diff) { best_diff = diff; best = i; }
 		}
-		FT_Select_Size(face, best);
+		if ((err = FT_Select_Size(face, best))) {
+			fprintf(stderr, "Error %d selecting strike %d (%d px)\n", err, best,
+			        (int)(face->available_sizes[best].y_ppem >> 6));
+			return err;
+		}
 		fprintf(stderr, "Info: bitmap font — selected strike %d (%dx%d px)\n",
 		        best,
 		        (int)(face->available_sizes[best].x_ppem >> 6),
 		        (int)(face->available_sizes[best].y_ppem >> 6));
+	} else if (s.pixel_size > 0) {
+		if ((err = FT_Set_Pixel_Sizes(face, 0, s.pixel_size))) {
+			fprintf(stderr, "Error %d setting pixel size %d\n", err, s.pixel_size);
+			return err;
+		}
 	} else {
-		FT_Set_Char_Size(face, s.size << 6, 0, DPI, 0);
+		if ((err = FT_Set_Char_Size(face, s.size << 6, 0, DPI, 0))) {
+			fprintf(stderr, "Error %d setting char size %d pt\n", err, s.size);
+			return err;
+		}
 	}
+	return 0;
 }
 
 int extract_range_ft(GFXglyph *table, glyph_name *names, FT_Face face,
@@ -60,7 +89,7 @@ int extract_range_ft(GFXglyph *table, glyph_name *names, FT_Face face,
 	FT_Bitmap *bitmap;
 	FT_BitmapGlyphRec *rec;
 
-	setup_face_size(face);
+	if (setup_face_size(face)) return -1;
 
 	for (codepoint = first; codepoint <= last; codepoint++, table_idx++) {
 		uint32_t glyph_index = FT_Get_Char_Index(face, codepoint);
@@ -72,9 +101,7 @@ int extract_range_ft(GFXglyph *table, glyph_name *names, FT_Face face,
 		}
 
 		if ((err = FT_Load_Glyph(face, glyph_index,
-		                         s.render_mode == 1
-		                           ? FT_LOAD_TARGET_NORMAL | FT_LOAD_COLOR
-		                           : FT_LOAD_TARGET_MONO))) {
+		                         glyph_load_flags(s.render_mode != 1)))) {
 			fprintf(stderr,
 			        "Error %d loading codepoint '0x%lx' with glyph index %u\n", err,
 			        codepoint, glyph_index);
@@ -198,10 +225,7 @@ static int shape_render_group(GFXglyph *table, glyph_name *names,
 			break;
 		}
 
-		if ((err = FT_Load_Glyph(face, gid,
-		                          s.render_mode == 1
-		                            ? FT_LOAD_TARGET_NORMAL | FT_LOAD_COLOR
-		                            : FT_LOAD_TARGET_MONO))) {
+		if ((err = FT_Load_Glyph(face, gid, glyph_load_flags(s.render_mode != 1)))) {
 			fprintf(stderr, "Error %d loading glyph %u (group[%d] seq[%u])\n",
 			        err, gid, group_idx, i);
 			continue;
@@ -280,7 +304,7 @@ int shape_and_render_sequence(GFXglyph *table, glyph_name *names, FT_Face face,
 		return -1;
 	}
 
-	setup_face_size(face);
+	if (setup_face_size(face)) return -1;
 	hb_font_t *hb_font = hb_ft_font_create(face, NULL);
 
 	int written   = 0;
@@ -361,7 +385,7 @@ static void composite_render_group(GFXglyph *table, glyph_name *names,
 	int placed = 0;
 	for (unsigned int i = 0; i < glyph_count; i++) {
 		uint32_t gid = gi[i].codepoint;
-		if (FT_Load_Glyph(face, gid, FT_LOAD_TARGET_MONO)) {
+		if (FT_Load_Glyph(face, gid, glyph_load_flags(1))) {
 			fprintf(stderr, "Error loading glyph %u (group[%d] composite)\n",
 			        gid, group_idx);
 			continue;
@@ -476,7 +500,7 @@ int composite_and_render_sequence(GFXglyph *table, glyph_name *names, FT_Face fa
 		return -1;
 	}
 
-	setup_face_size(face);
+	if (setup_face_size(face)) return -1;
 	hb_font_t *hb_font = hb_ft_font_create(face, NULL);
 
 	int written = 0, group_idx = 0;

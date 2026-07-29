@@ -1,0 +1,17 @@
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/CMakeFiles/fontconvert.dir
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/CMakeFiles/edit_cache.dir
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/CMakeFiles/rebuild_cache.dir
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/CMakeFiles/list_install_components.dir
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/CMakeFiles/install.dir
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/CMakeFiles/install/local.dir
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/CMakeFiles/install/strip.dir
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/CMakeFiles/freetype_without_harfbuzz.dir
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/CMakeFiles/harfbuzz.dir
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/CMakeFiles/freetype_with_harfbuzz.dir
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/CMakeFiles/test.dir
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/CMakeFiles/edit_cache.dir
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/CMakeFiles/rebuild_cache.dir
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/CMakeFiles/list_install_components.dir
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/CMakeFiles/install.dir
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/CMakeFiles/install/local.dir
+/home/user/Adafruit-GFX-Library/fontconvert/cmake-build-pinned/freetype-hb/CMakeFiles/install/strip.dir
