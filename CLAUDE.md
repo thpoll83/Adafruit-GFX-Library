@@ -144,7 +144,15 @@ edges, 1px silhouette. `-I`/`-E` are BGRA-only; `-O` still works on gray/mono.
 
 ### Output format
 `GFXfont` / `GFXglyph` structs in `gfxfont.h`:
-- Bitmap array: 1-bit packed, no per-scanline padding, byte-padded per glyph
+- Bitmap array: **COLUMN-NATIVE (OLED page)** 1-bit packed. 1 byte = 8 **vertical**
+  pixels; `cb = (height + 7) / 8` page-bytes per column, so a glyph is `width * cb`
+  whole bytes (byte-padded per glyph). Index as `byte = bitmapOffset + x*cb + (y>>3)`,
+  bit `1 << (y & 7)` — **LSB = top of the page**. This matches the SSD1306 page
+  memory layout so the PolyKybd firmware can `memcpy` a whole column-byte at once
+  instead of setting pixels one at a time. ⚠️ This is **NOT** the classic Adafruit
+  row-major layout (`bit = y*width + x`, MSB-first); the dither/edge/outline pipeline
+  still works row-major internally (`enbit` / the `s_cap` capture), then `emit_buf_col`
+  (`dither.c`) transposes to column-native at the single per-glyph emit point.
 - Glyph array: `{ bitmapOffset, width, height, xAdvance, xOffset, yOffset }`
 - Font struct: `{ *bitmap, *glyphs, first, last, yAdvance }` — range mode uses actual codepoints for `first`/`last`; sequence mode uses `first` = the `-F` base codepoint (default 0) and `last` = `first + glyph_count - 1`
 

@@ -417,10 +417,27 @@ static void morphological_outline(uint8_t *buf, int w, int h, int t) {
 	free(src);
 }
 
-// Emit n_bits bits from packed-bits buffer buf via enbit().
-static void emit_buf(const uint8_t *buf, int n_bits) {
-	for (int i = 0; i < n_bits; i++)
-		enbit((buf[i >> 3] >> (7 - (i & 7))) & 1);
+// Emit a row-major MSB-first capture buffer (bit = y*w + x) as a COLUMN-NATIVE
+// (OLED page) glyph — the .plyf/firmware bitmap layout: per column, cb=(h+7)/8
+// page-bytes; byte at [x*cb + page] has bit b (b=0..7, LSB..MSB) = pixel
+// (x, page*8 + b), LSB = top of the page.  enbit() packs MSB-first, so within
+// each page we emit b = 7..0 and feed 0 for rows past h (padding bits the
+// firmware never reads — kept 0 for byte-reproducibility with the transposed
+// headers / host emitter).  Every glyph is w*cb whole bytes → no trailing
+// partial byte, so the per-glyph enbit(0) padding in font_render.c is dropped.
+void emit_buf_col(const uint8_t *buf, int w, int h) {
+	int cb = (h + 7) / 8;
+	for (int x = 0; x < w; x++)
+		for (int page = 0; page < cb; page++)
+			for (int b = 7; b >= 0; b--) {
+				int yy = page * 8 + b;
+				uint8_t lit = 0;
+				if (yy < h) {
+					int idx = yy * w + x;
+					lit = (buf[idx >> 3] >> (7 - (idx & 7))) & 1;
+				}
+				enbit(lit);
+			}
 }
 
 // Build a content mask (alpha > 0) from a BGRA bitmap, scaled to out_w x out_h.
@@ -521,22 +538,22 @@ static void render_core(FT_Bitmap *bitmap, int *out_w, int *out_h) {
 void render_bitmap_to_bits(FT_Bitmap *bitmap, int *out_w, int *out_h) {
 	int is_bgra = (bitmap->pixel_mode == FT_PIXEL_MODE_BGRA);
 	// -I (invert) and -E (edges) are colour-glyph post-processes; -O works on
-	// both.  Capture the dithered bits whenever any post-process is requested.
+	// both.  Apply them (when requested) on the captured row-major bits.
 	int post = (s.outline > 0) || (is_bgra && (s.invert || s.edge_preserve));
-	if (!post) {
-		render_core(bitmap, out_w, out_h);
-		return;
-	}
 
-	// Allocate worst-case capture buffer (no scaling can increase size).
+	// ALWAYS capture the dithered bits row-major first (the dither/edge/outline
+	// pipeline indexes bit = y*w + x), then transpose to column-native on emit.
+	// (void)post — the branch below still gates the actual post-processing.
 	int max_bytes = ((int)bitmap->width * (int)bitmap->rows + 7) / 8;
 	if (max_bytes <= 0) {
+		// Empty glyph — render_core sets *out_w/*out_h and emits nothing.
 		render_core(bitmap, out_w, out_h);
 		return;
 	}
 
 	s_cap = (uint8_t *)calloc(max_bytes, 1);
 	if (!s_cap) {
+		// OOM (unreachable in practice) — degrade to the streaming path.
 		render_core(bitmap, out_w, out_h);
 		return;
 	}
@@ -545,27 +562,28 @@ void render_bitmap_to_bits(FT_Bitmap *bitmap, int *out_w, int *out_h) {
 	render_core(bitmap, out_w, out_h);
 
 	uint8_t *captured = s_cap;
-	int n_bits = *out_w * *out_h;
 	s_cap     = NULL;
 	s_cap_pos = 0;
 
-	if (is_bgra) {
-		// Order: invert the fill, then overlay interior edges, then the 1px
-		// outline — so the silhouette is a single clean line on top.
-		float *alpha = (s.invert || s.edge_preserve)
-		             ? scaled_alpha_mask(bitmap, *out_w, *out_h) : NULL;
-		if (s.invert && alpha)
-			apply_invert(captured, alpha, *out_w, *out_h);
-		if (s.edge_preserve && alpha && s_edge_gray &&
-		    s_edge_w == *out_w && s_edge_h == *out_h)
-			apply_interior_edges(captured, s_edge_gray, alpha, *out_w, *out_h);
-		if (s.outline > 0)
-			alpha_content_outline(captured, bitmap, *out_w, *out_h, s.outline);
-		free(alpha);
-	} else if (s.outline > 0) {
-		morphological_outline(captured, *out_w, *out_h, s.outline);
+	if (post) {
+		if (is_bgra) {
+			// Order: invert the fill, then overlay interior edges, then the 1px
+			// outline — so the silhouette is a single clean line on top.
+			float *alpha = (s.invert || s.edge_preserve)
+			             ? scaled_alpha_mask(bitmap, *out_w, *out_h) : NULL;
+			if (s.invert && alpha)
+				apply_invert(captured, alpha, *out_w, *out_h);
+			if (s.edge_preserve && alpha && s_edge_gray &&
+			    s_edge_w == *out_w && s_edge_h == *out_h)
+				apply_interior_edges(captured, s_edge_gray, alpha, *out_w, *out_h);
+			if (s.outline > 0)
+				alpha_content_outline(captured, bitmap, *out_w, *out_h, s.outline);
+			free(alpha);
+		} else if (s.outline > 0) {
+			morphological_outline(captured, *out_w, *out_h, s.outline);
+		}
 	}
 	free(s_edge_gray); s_edge_gray = NULL; s_edge_w = s_edge_h = 0;
-	emit_buf(captured, n_bits);
+	emit_buf_col(captured, *out_w, *out_h);   // row-major → column-native (OLED page)
 	free(captured);
 }
