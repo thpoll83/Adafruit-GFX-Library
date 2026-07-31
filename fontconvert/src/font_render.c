@@ -169,9 +169,9 @@ int extract_range_ft(GFXglyph *table, glyph_name *names, FT_Face face,
 			table[table_idx].yOffset  = scale_metric(1 - rec->top, out_h, (int)bitmap->rows);
 		}
 
-		int n = (out_w * out_h) & 7;
-		if (n) { n = 8 - n; while (n--) enbit(0); }
-		*bitmapOffset += (out_w * out_h + 7) / 8;
+		// Column-native (OLED page): render_bitmap_to_bits emits w*cb whole
+		// bytes (cb=(h+7)/8), so no per-glyph partial byte to pad.
+		*bitmapOffset += out_w * ((out_h + 7) / 8);
 
 		FT_Done_Glyph(glyph);
 	}
@@ -285,9 +285,9 @@ static int shape_render_group(GFXglyph *table, glyph_name *names,
 			table[*written].yOffset  = scale_metric(1 - rec->top, out_h, (int)bitmap->rows);
 		}
 
-		int n = (out_w * out_h) & 7;
-		if (n) { n = 8 - n; while (n--) enbit(0); }
-		*bitmapOffset += (out_w * out_h + 7) / 8;
+		// Column-native (OLED page): render_bitmap_to_bits emits w*cb whole
+		// bytes (cb=(h+7)/8), so no per-glyph partial byte to pad.
+		*bitmapOffset += out_w * ((out_h + 7) / 8);
 
 		FT_Done_Glyph(ft_glyph);
 		(*written)++;
@@ -479,12 +479,9 @@ static void composite_render_group(GFXglyph *table, glyph_name *names,
 						canvas[cpos >> 3] |= 0x80 >> (cpos & 7);
 					}
 		}
-		int nbits = CW * CH;
-		for (int i = 0; i < nbits; i++)
-			enbit((canvas[i >> 3] >> (7 - (i & 7))) & 1);
-		int n = nbits & 7;
-		if (n) { n = 8 - n; while (n--) enbit(0); }
-		*bitmapOffset += (nbits + 7) / 8;
+		// Column-native (OLED page): transpose the row-major composite canvas.
+		emit_buf_col(canvas, CW, CH);
+		*bitmapOffset += CW * ((CH + 7) / 8);
 		free(canvas);
 	}
 
