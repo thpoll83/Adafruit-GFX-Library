@@ -200,7 +200,12 @@ void print_usage(char *argv[]) {
 	        "              Applied before -G/-c/-e.\n");
 	fprintf(stderr,
 	        "    -o N      Add N to every codepoint written into the output struct\n"
-	        "              (positive offset; overridden by -n)\n");
+	        "              (positive offset; overridden by -n).  This is how a whole\n"
+	        "              RANGE is relocated into a private-use block — e.g.\n"
+	        "              -o0xF0000 -b32 emits latin 0x20-0x7E as 0xF0020-0xF007E,\n"
+	        "              so a second face of the SAME characters can coexist with\n"
+	        "              the first in one front-to-back font table.  (-F does the\n"
+	        "              same job in -S sequence mode.)\n");
 	fprintf(stderr,
 	        "    -n N      Subtract N from every codepoint written into the output\n"
 	        "              struct (takes priority over -o)\n");
@@ -333,8 +338,12 @@ int parse_args(int argc, char *argv[], char **fontFileName,
 
 		case 'o':
 			if (!optarg) { printf("Missing value for argument o!\n"); return -1; }
+			// ADD N (as documented). This used to negate, making -o an alias of
+			// -n; nothing generated used it, so fixing it changes no existing
+			// output. It is what relocates a whole RANGE into a private-use
+			// block (the sequence-mode equivalent is -F).
 			if (offset_used == 0)
-				s.offset = -to_int(optarg);
+				s.offset = to_int(optarg);
 			else
 				printf("Ignoring argument o in favor of argument n!\n");
 			break;

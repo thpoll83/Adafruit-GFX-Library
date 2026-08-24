@@ -76,6 +76,24 @@ expressible in points. Always **measure** cap-height / x-height / worst-case str
 widths against the previous header before adopting a size. Consumers: the PolyKybd
 firmware's `fonts/gen-status-fonts.sh`.
 
+### Range relocation (`-o`) — a second face of the SAME characters
+`-o<N>` ADDs N to the emitted `GFXfont` `first`/`last` while still rendering the
+real characters of the requested range. That is what lets a **second face of one
+repertoire** live in a single front-to-back font table: the table is scanned in
+order and the first font covering a codepoint wins, so a second 'a' at 0x61 could
+never be reached — emitted at `0xF0000 + 0x61` it can. PolyKybd's bigger keycap
+legend sizes are exactly this (`-o0xF0000` / `-o0xF3000` with `-b32`, one tier per
+offset); the consumer adds the same base before its lookup.
+
+⚠️ **Until 2026-08-20 `-o` SUBTRACTED** — it assigned `s.offset = -N`, making it an
+exact alias of `-n` despite the help text saying "add". Nothing in the tree used it
+(no `fonts.yaml` entry, no script), so correcting it changed no generated header —
+but an older fontconvert binary will silently emit the wrong range for anything
+relying on it. The range-mode guard already covers both directions (emitted
+codepoint below 0, or above 0xFFFF without `-b32`).
+
+`-F` is the sequence-mode (`-S`) equivalent; use `-o` for ranges, `-F` for sequences.
+
 ### Sequence base codepoint (`-F`) and colour-glyph outline (`-O`)
 `-F<cp>` sets the emitted `GFXfont`'s `first` in **sequence (`-S`) mode** to `cp`
 (default 0), with `last = cp + count - 1` — so HarfBuzz-shaped sequences (flags,
