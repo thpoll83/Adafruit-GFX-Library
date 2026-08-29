@@ -5,7 +5,9 @@ Doxyfile*
 doxygen_sqlite3.db
 html
 fontconvert/.idea
-fontconvert/cmake-build-debug
-fontconvert/cmake-build-release
+# Any CMake build directory. Deliberately a glob, not a list of the two or
+# three names we happen to use today: `cmake-build-pinned/` was committed by
+# accident (5,224 files, 11 MB) purely because it was not on that list.
+fontconvert/cmake-build-*/
 __pycache__/
 fontconvert/tests/font_test_output
