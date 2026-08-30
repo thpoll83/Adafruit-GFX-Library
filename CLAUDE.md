@@ -18,6 +18,17 @@ cmake --build .
 cmake --install .   # installs to ~/.local/bin/fontconvert
 ```
 
+⚠️ **`.gitignore` globs the build directory (`fontconvert/cmake-build-*/`) — keep it a
+glob, never a list of the names we happen to use today.** It listed
+`fontconvert/cmake-build-debug` only, so **`cmake-build-pinned/` was tracked: 5,224
+files, 11 MB of FreeType and HarfBuzz sources committed by accident**, found in 2026-08
+only because a security scanner flagged an `eval()` in FreeType's own `glnames.py` inside
+it. Nothing else would ever have looked: a build dir is not something anyone greps, and
+`git status` is clean once the files are tracked. It recurs easily — the README tells you
+to create a build directory, and CMake/CLion name them per-configuration, so any new
+configuration produces a new name. Untracking it (`git rm -r --cached`) leaves the files
+on disk, so the fix costs nothing locally.
+
 > **Claude Code on the web: the CMake build works, but only via fallback mirrors.**
 > The `ExternalProject` primary download hosts are blocked by the web session's network
 > policy: FreeType's `download.savannah.gnu.org` and HarfBuzz's `www.freedesktop.org`
