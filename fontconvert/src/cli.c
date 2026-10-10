@@ -97,7 +97,7 @@ void print_usage(char *argv[]) {
 	fprintf(stderr,
 	        "    -g        Grayscale / color-emoji mode:\n"
 	        "                BGRA bitmaps (CBDT/sbix color fonts) are composited\n"
-	        "                over white then quantised to 1-bit.\n"
+	        "                over black then quantised to 1-bit.\n"
 	        "                8-bit gray bitmaps are also quantised to 1-bit.\n"
 	        "              The dithering algorithm is selected with -D (default: fs).\n"
 	        "              Required for NotoColorEmoji and similar color fonts.\n");
