@@ -45,3 +45,9 @@ The PRIME DIRECTIVE is to maintain backward compatibility with existing Arduino 
 - Please no more pentagram-drawing PRs. Any oddly-specific drawing functions can go in your own code and aren't helpful in a library context.
 
 If you *must* have one of these features, consider creating a fork with the features required for your project...it's easy to keep synced with the upstream code.
+
+## AI-assisted development
+
+Since mid-2026, the PolyKybd changes in this fork (the `fontconvert` tool) are written with AI tools, so that I can move faster towards the vision of the PolyKybd project. The upstream Adafruit code is not affected.
+
+I decide on every change. I review the changes, test them myself, and write the summaries based on the results. AI-written code can still contain mistakes. Please report problems as GitHub issues.
